@@ -1,6 +1,7 @@
 // Painel do PC: mapa + tabela dos pontos, status PlaneView, edição e exportação.
 import { applyI18n, bindLangToggle, t } from './i18n.js';
-import { $, copyText, download, escapeHtml, formatDate, stamp, toast } from './ui.js';
+import { $, copyText, download, escapeHtml, formatDate, registerSW, stamp, toast } from './ui.js';
+import { chime, disableNotify, enableNotify, notifyEnabled, notifyPermission, setSound, showNotification, soundEnabled } from './notify.js';
 import { accuracyLevel, formatAccuracy } from './geo.js';
 import { formatLatLng, toGeoJSON, toKML } from './export.js';
 import { loginWithCode, loginAdmin, dataRepo } from './auth.js';
@@ -146,7 +147,9 @@ function schedule() {
 
 async function tick() {
   const dialogOpen = [...document.querySelectorAll('dialog')].some((d) => d.open);
-  if (document.visibilityState === 'visible' && !dialogOpen && !busy) await load({ silent: true });
+  // Com notificação ou som ligados, continua verificando mesmo com a aba em segundo plano.
+  const watching = document.visibilityState === 'visible' || notifyEnabled() || soundEnabled();
+  if (watching && !dialogOpen && !busy) await load({ silent: true });
   schedule();
 }
 
@@ -212,8 +215,9 @@ async function load({ silent = false } = {}) {
     });
     points = loaded.filter(Boolean).sort((a, b) => (b.captured_at || '').localeCompare(a.captured_at || ''));
     selected = new Set([...selected].filter((id) => points.some((p) => p.id === id)));
+    let arrived = [];
     if (!firstLoad) {
-      const arrived = points.filter((p) => !before.has(p.id));
+      arrived = points.filter((p) => !before.has(p.id));
       for (const p of arrived) newIds.set(p.id, Date.now());
       if (arrived.length) {
         toast(arrived.length === 1 ? t('live.newOne', { name: arrived[0].name }) : t('live.newMany', { n: arrived.length }));
@@ -221,6 +225,7 @@ async function load({ silent = false } = {}) {
       }
     }
     render();
+    if (arrived.length) announce(arrived);
   } catch (e) {
     if (e?.status === 401 || e?.status === 403 || !silent) {
       if (!silent) $('#rows').innerHTML = '';
@@ -232,6 +237,58 @@ async function load({ silent = false } = {}) {
     renderLive();
   }
 }
+
+// ---------- Notificação e som ----------
+function announce(arrived) {
+  if (soundEnabled()) chime();
+  if (!notifyEnabled()) return;
+  if (document.visibilityState === 'visible' && document.hasFocus()) return; // já está olhando
+  for (const p of arrived.slice(0, 3)) {
+    const farm = farmOf(p);
+    const body = [
+      `${formatLatLng(p.lat, p.lng)} · ${formatAccuracy(p.accuracy_m)}`,
+      [farm, p.team_label].filter(Boolean).join(' · '),
+    ]
+      .filter(Boolean)
+      .join('\n');
+    showNotification(t('notify.title', { name: p.name }), body, { tag: `ps-${p.id}`, onClick: () => setActive(p.id) });
+  }
+  if (arrived.length > 3) showNotification(t('live.newMany', { n: arrived.length }), t('notify.more'), { tag: 'ps-many' });
+}
+
+function renderNotifyButtons() {
+  const nb = $('#notify-btn');
+  const perm = notifyPermission();
+  const on = notifyEnabled();
+  nb.hidden = perm === 'unsupported';
+  nb.textContent = on ? `🔔 ${t('notify.on')}` : `🔕 ${t('notify.off')}`;
+  nb.className = `${on ? 'btn' : 'btn-primary'} small`;
+  nb.title = perm === 'denied' ? t('notify.blocked') : t(on ? 'notify.turnOff' : 'notify.turnOn');
+  const sb = $('#sound-btn');
+  sb.textContent = soundEnabled() ? '🔊' : '🔇';
+  sb.title = t(soundEnabled() ? 'notify.soundOff' : 'notify.soundOn');
+  sb.setAttribute('aria-pressed', soundEnabled());
+}
+
+$('#notify-btn').addEventListener('click', async () => {
+  if (notifyEnabled()) {
+    disableNotify();
+  } else {
+    const res = await enableNotify();
+    if (res === 'denied') toast(t('notify.blocked'), 'error');
+    else if (res === 'granted') {
+      toast(t('notify.enabled'));
+      showNotification(t('notify.testTitle'), t('notify.testBody'), { tag: 'ps-test' });
+    }
+  }
+  renderNotifyButtons();
+});
+
+$('#sound-btn').addEventListener('click', () => {
+  setSound(!soundEnabled());
+  if (soundEnabled()) chime();
+  renderNotifyButtons();
+});
 
 // Destaque de "novo" some depois de 2 minutos.
 setInterval(() => {
@@ -601,11 +658,14 @@ $('#farm-list').addEventListener('click', async (e) => {
 // ---------- Início ----------
 applyI18n();
 bindLangToggle($('#lang'), () => {
+  renderNotifyButtons();
   if (session) {
     $('#who').textContent = session.team_label;
     render();
   }
 });
+registerSW();
+renderNotifyButtons();
 session = loadSession();
 if (session?.data_token) showApp();
 else showLogin();

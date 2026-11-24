@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir sem internet.
 // Ao publicar mudanças, aumente VERSION para os celulares pegarem a versão nova.
-const VERSION = 'ps-v4';
+const VERSION = 'ps-v5';
 const SHELL = [
   './',
   'index.html',
@@ -24,6 +24,7 @@ const SHELL = [
   'js/github.js',
   'js/i18n.js',
   'js/kml.js',
+  'js/notify.js',
   'js/painel.js',
   'js/store.js',
   'js/sync.js',
@@ -79,6 +80,18 @@ self.addEventListener('fetch', (e) => {
         })
         .catch(() => cached);
       return cached || net;
+    }),
+  );
+});
+
+// Clique na notificação: volta para o painel aberto ou abre um novo.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || new URL('painel.html', self.registration.scope).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.includes('painel.html'));
+      return open ? open.focus() : self.clients.openWindow(url);
     }),
   );
 });

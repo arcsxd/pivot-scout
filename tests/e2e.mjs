@@ -249,6 +249,23 @@ try {
 
   // ---------- 4. Painel do PC ----------
   const panel = await desk.newPage();
+  // Notificação do sistema simulada (registra o que seria mostrado).
+  await panel.addInitScript(() => {
+    window.__notes = [];
+    window.__focus = true;
+    document.hasFocus = () => window.__focus;
+    window.Notification = class {
+      static permission = 'default';
+      static async requestPermission() {
+        window.Notification.permission = 'granted';
+        return 'granted';
+      }
+      constructor(title, opts) {
+        window.__notes.push({ title, body: opts?.body || '' });
+      }
+      close() {}
+    };
+  });
   panel.on('pageerror', (e) => console.error('pageerror(panel):', e));
   await panel.goto(BASE + 'painel.html');
   await panel.fill('#code', code);
@@ -280,7 +297,15 @@ try {
   assert.equal(await panel.evaluate(() => navigator.clipboard.readText()), '-15.780123, -47.929234');
   log('painel: clicar na coordenada copia');
 
+  // Ativar notificações
+  assert.match(await panel.textContent('#notify-btn'), /Ativar notificações/);
+  await panel.click('#notify-btn');
+  await panel.waitForFunction(() => window.__notes.length === 1);
+  assert.match(await panel.textContent('#notify-btn'), /🔔/);
+  log('notificações ativadas (com aviso de teste)');
+
   // Atualização automática: ponto novo capturado no celular aparece sozinho
+  await panel.evaluate(() => (window.__focus = false));
   await panel.selectOption('#auto', '10');
   await panel.waitForFunction(() => document.querySelector('#live').classList.contains('ok'));
   await phone.setGeolocation({ latitude: -15.7790, longitude: -47.9300, accuracy: 3 });
@@ -292,6 +317,14 @@ try {
   await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 3, null, { timeout: 25000 });
   assert.match(await panel.locator('#rows tr', { hasText: 'Pivot 14' }).getAttribute('class'), /is-new/);
   await panel.waitForFunction(() => document.querySelector('#toast').textContent.includes('Pivot 14'));
+  await panel.waitForFunction(() => window.__notes.length === 2);
+  const note = (await panel.evaluate(() => window.__notes))[1];
+  assert.equal(note.title, 'Novo ponto: Pivot 14');
+  assert.ok(note.body.includes('-15.779000, -47.930000'), note.body);
+  assert.ok(note.body.includes('Fazenda Santa Rita · Talhão 1'), note.body);
+  assert.match(await panel.title(), /^\(1\) /);
+  await panel.evaluate(() => (window.__focus = true));
+  log('notificação do sistema enviada: ' + note.title + ' | ' + note.body.replace('\n', ' | '));
   assert.equal(await panel.locator('#rows tr', { hasText: 'Pivot 14' }).locator('td').nth(3).textContent(), 'Fazenda Santa Rita · Talhão 1');
   await panel.screenshot({ path: join(SHOTS, '7c-painel-ao-vivo.png') });
   await panel.waitForTimeout(11000);
