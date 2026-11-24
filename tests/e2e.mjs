@@ -129,7 +129,7 @@ const log = (...a) => console.log('✓', ...a);
 
 try {
   // ---------- 1. Configuração inicial ----------
-  const desk = await browser.newContext({ viewport: { width: 1360, height: 860 }, serviceWorkers: 'block', acceptDownloads: true });
+  const desk = await browser.newContext({ viewport: { width: 1360, height: 860 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
   await wire(desk);
   const setup = await desk.newPage();
   setup.on('pageerror', (e) => console.error('pageerror(setup):', e));
@@ -232,6 +232,9 @@ try {
   assert.equal(rec.status, 'pendente');
   assert.equal(rec.team_label, 'Equipe Pelican');
   assert.ok(rec.photo.startsWith('photos/'));
+  await cap.locator('#points li', { hasText: 'Pivot 13' }).locator('.copyable').click();
+  await cap.waitForFunction(() => document.querySelector('#toast').textContent.includes('-15.785500, -47.934100'));
+  log('celular: tocar na coordenada copia');
   await cap.screenshot({ path: join(SHOTS, '6-celular-enviado.png'), fullPage: true });
   log('online de novo: pontos e foto enviados ao repo de dados');
 
@@ -243,6 +246,30 @@ try {
   await panel.click('#login-form button');
   await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 2, null, { timeout: 20000 });
   assert.equal(await panel.locator('.leaflet-interactive').count() >= 2, true);
+
+  // Importar KMZ da fazenda
+  await panel.click('#farms-btn');
+  panel.once('dialog', (d) => d.accept(d.defaultValue()));
+  await panel.setInputFiles('#farm-file', join(ROOT, 'tests/fixtures/fazenda.kmz'));
+  await panel.waitForFunction(() => document.querySelector('#farms-count').textContent === '1' || document.querySelector('#farm-err').textContent, null, { timeout: 20000 });
+  assert.equal(await panel.textContent('#farm-err'), '', 'erro ao importar');
+  const farmFiles = [...repos['arcsxd/pivot-scout-data'].files.keys()].filter((k) => k.startsWith('farms/'));
+  assert.equal(farmFiles.length, 1);
+  const farmRec = JSON.parse(textOf('arcsxd/pivot-scout-data', farmFiles[0]));
+  assert.equal(farmRec.name, 'Fazenda Santa Rita');
+  assert.equal(farmRec.geojson.features.length, 2);
+  assert.equal(farmRec.geojson.features[0].geometry.coordinates.length, 2, 'polígono com buraco');
+  await panel.screenshot({ path: join(SHOTS, '7b-fazendas.png') });
+  await panel.click('#farm-close');
+  const farmCell = async (name) => panel.locator('#rows tr', { hasText: name }).locator('td').nth(3).textContent();
+  assert.equal(await farmCell('Pivot 12'), 'Fazenda Santa Rita · Talhão 1');
+  assert.equal(await farmCell('Pivot 13'), '');
+  log('KMZ importado; ponto dentro da fazenda identificado');
+
+  // Clicar na coordenada copia
+  await panel.locator('#rows tr', { hasText: 'Pivot 12' }).locator('td.copyable').click();
+  assert.equal(await panel.evaluate(() => navigator.clipboard.readText()), '-15.780123, -47.929234');
+  log('painel: clicar na coordenada copia');
   await panel.screenshot({ path: join(SHOTS, '7-painel.png') });
 
   const row12 = panel.locator('#rows tr', { hasText: 'Pivot 12' });
@@ -275,12 +302,16 @@ try {
   const kml = await readFile(await dl.path(), 'utf8');
   assert.ok(kml.includes('<name>Pivot 12 (Santa Rita)</name>'));
   assert.ok(kml.includes('<coordinates>-47.9292345,-15.7801000,0</coordinates>'));
+  assert.ok(kml.includes('Fazenda: Fazenda Santa Rita · Talhão 1'));
   const [dl2] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-geo')]);
   assert.equal(JSON.parse(await readFile(await dl2.path(), 'utf8')).features.length, 2);
   log('exportação KML e GeoJSON');
 
-  await panel.locator('#rows tr', { hasText: 'Pivot 12' }).click();
+  await panel.locator('#rows tr', { hasText: 'Pivot 12' }).locator('td').nth(1).click();
   await panel.waitForSelector('.leaflet-popup');
+  await panel.locator('.leaflet-popup .copyable').click();
+  assert.equal(await panel.evaluate(() => navigator.clipboard.readText()), '-15.780100, -47.929234');
+  log('popup do mapa: clicar na coordenada copia');
   await panel.screenshot({ path: join(SHOTS, '8-painel-popup.png') });
 
   panel.once('dialog', (d) => d.accept());
@@ -289,6 +320,14 @@ try {
   assert.ok(!repos['arcsxd/pivot-scout-data'].files.has(path12));
   assert.equal([...repos['arcsxd/pivot-scout-data'].files.keys()].filter((k) => k.startsWith('photos/')).length, 0);
   log('apagar remove ponto e foto');
+
+  await panel.click('#farms-btn');
+  panel.once('dialog', (d) => d.accept());
+  await panel.click('#farm-list button[data-act=remove]');
+  await panel.waitForFunction(() => document.querySelector('#farms-count').textContent === '0');
+  assert.equal([...repos['arcsxd/pivot-scout-data'].files.keys()].filter((k) => k.startsWith('farms/')).length, 0);
+  await panel.click('#farm-close');
+  log('remover fazenda');
 
   // Senha de admin também entra no painel.
   const panel2 = await desk.newPage();

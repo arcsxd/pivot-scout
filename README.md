@@ -12,7 +12,7 @@ App para os operadores do **Pelican 2** registrarem a coordenada da **ponta exte
 | Página | Quem usa | Para quê |
 | --- | --- | --- |
 | `index.html` | Operador, no celular | Captura com GPS ao vivo, precisão em metros, nome obrigatório, foto opcional, funciona sem internet |
-| `painel.html` | PC | Mapa de satélite, tabela, copiar lat/long, marcar "lançado no PlaneView", editar, apagar, exportar KML/GeoJSON |
+| `painel.html` | PC | Mapa de satélite, tabela, clique na lat/long para copiar, marcar "lançado no PlaneView", editar, apagar, exportar KML/GeoJSON, importar a área da fazenda (KML/KMZ) |
 | `admin.html` | Administrador | Criar e revogar códigos de equipe, trocar token, trocar senha |
 | `tools/setup.html` | Administrador, uma vez | Configuração inicial |
 
@@ -51,6 +51,17 @@ Para criar mais códigos, use `admin.html`.
 - No menu do navegador, use **Adicionar à tela inicial** para virar um "app".
 - O primeiro login precisa de internet. Depois disso, a captura funciona offline.
 - A precisão aparece em verde (≤5 m), amarelo (≤10 m) ou vermelho (>10 m). O GPS de celular costuma dar 3 a 10 m. Ficar parado alguns segundos ajuda.
+
+## Área da fazenda (KML/KMZ)
+
+No painel do PC, use **Fazendas → Importar KML / KMZ**. Serve um arquivo exportado do Google Earth, por exemplo.
+- A área fica salva em `farms/` no repo de dados e aparece no mapa para todos.
+- A coluna **Fazenda** da tabela mostra em qual fazenda (e talhão) cada ponto caiu. Essa informação também vai nas exportações.
+- Polígonos com buracos e arquivos com vários talhões são suportados.
+
+## Copiar coordenada
+
+Clique (ou toque) em qualquer `lat, long`: na tabela, no balão do mapa, na lista do celular ou na posição atual do GPS. A coordenada é copiada no formato `-15.780123, -47.929234`.
 
 ## Segurança: o que saber
 

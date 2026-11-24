@@ -114,6 +114,13 @@ function renderGPS() {
   $('#capture').disabled = !current;
 }
 
+// Tocar na posição atual copia "lat, long".
+$('#coords').addEventListener('click', async () => {
+  if (!current) return;
+  const coord = formatLatLng(current.lat, current.lng);
+  if (await copyText(coord)) toast(`${t('act.copied')} ${coord}`);
+});
+
 $('#capture').addEventListener('click', () => {
   if (!current) return;
   frozen = { ...current };
@@ -220,11 +227,10 @@ async function renderList() {
         : `<span class="badge ok">⏳ ${escapeHtml(t('list.pendingOne'))}</span>`;
       return `<li data-id="${escapeHtml(p.id)}">
         <div class="title"><span>${escapeHtml(p.name)}</span>${st}</div>
-        <div class="mono">${coord}</div>
+        <div><span class="mono copyable" data-act="copy" role="button" tabindex="0">${coord}</span></div>
         <div class="meta"><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span>
           <span>${escapeHtml(formatDate(p.captured_at))}</span>${p.photoBlob ? '<span>📷</span>' : ''}</div>
         <div class="row">
-          <button class="btn small" data-act="copy" type="button">${escapeHtml(t('act.copy'))}</button>
           ${navigator.share ? `<button class="btn small" data-act="share" type="button">${escapeHtml(t('act.share'))}</button>` : ''}
           <button class="btn-danger small" data-act="remove" type="button">${escapeHtml(t('act.remove'))}</button>
         </div>
@@ -234,14 +240,14 @@ async function renderList() {
 }
 
 $('#points').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button[data-act]');
+  const btn = e.target.closest('[data-act]');
   if (!btn) return;
   const id = btn.closest('li').dataset.id;
   const p = (await getPoints()).find((x) => x.id === id);
   if (!p) return;
   const coord = formatLatLng(p.lat, p.lng);
   if (btn.dataset.act === 'copy') {
-    if (await copyText(coord)) toast(t('act.copied'));
+    if (await copyText(coord)) toast(`${t('act.copied')} ${coord}`);
   } else if (btn.dataset.act === 'share') {
     const text = `${p.name}\n${coord}\n${formatAccuracy(p.accuracy_m)}\nhttps://maps.google.com/?q=${p.lat},${p.lng}`;
     navigator.share({ title: p.name, text }).catch(() => {});

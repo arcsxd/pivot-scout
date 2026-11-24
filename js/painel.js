@@ -4,11 +4,14 @@ import { $, copyText, download, escapeHtml, formatDate, stamp, toast } from './u
 import { accuracyLevel, formatAccuracy } from './geo.js';
 import { formatLatLng, toGeoJSON, toKML } from './export.js';
 import { loginWithCode, loginAdmin, dataRepo } from './auth.js';
+import { readFarmFile, farmLabel } from './kml.js';
 
 const SESSION_KEY = 'ps-panel-session';
 let session = null;
 let gh = null;
 let points = []; // {...registro, _sha}
+let farms = []; // {id, name, geojson, _sha}
+let farmLayer;
 let selected = new Set();
 let activeId = null;
 let map;
@@ -121,7 +124,16 @@ function cacheSet(sha, data) {
 async function load() {
   $('#rows').innerHTML = `<tr><td class="empty" colspan="8">${escapeHtml(t('panel.loading'))}</td></tr>`;
   try {
-    const entries = (await gh.listDir('points')).filter((e) => e.type === 'file' && e.name.endsWith('.json'));
+    const [pointDir, farmDir] = await Promise.all([gh.listDir('points'), gh.listDir('farms')]);
+    const entries = pointDir.filter((e) => e.type === 'file' && e.name.endsWith('.json'));
+    const farmEntries = farmDir.filter((e) => e.type === 'file' && e.name.endsWith('.json'));
+    farms = (
+      await mapLimit(farmEntries, 4, async (e) => {
+        const f = await gh.getFile(e.path);
+        return f ? { ...JSON.parse(f.text), _sha: e.sha } : null;
+      })
+    ).filter(Boolean);
+    renderFarms();
     const loaded = await mapLimit(entries, 6, async (e) => {
       let data = cacheGet(e.sha);
       if (!data) {
@@ -161,16 +173,17 @@ function initMap() {
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19,
   }).addTo(map);
+  farmLayer = L.layerGroup().addTo(map);
   layer = L.layerGroup().addTo(map);
 }
 
 function popupHtml(p) {
   return `<strong>${escapeHtml(p.name)}</strong><br>
-    <span class="mono">${formatLatLng(p.lat, p.lng)}</span><br>
+    <span class="mono copyable" data-act="copy" data-id="${escapeHtml(p.id)}" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</span><br>
+    ${farmOf(p) ? `${escapeHtml(farmOf(p))}<br>` : ''}
     ${formatAccuracy(p.accuracy_m)} · ${escapeHtml(formatDate(p.captured_at))}<br>
     ${escapeHtml(p.team_label || '')} · ${escapeHtml(t('status.' + (p.status || 'pendente')))}
     <div class="row">
-      <button class="btn small" data-act="copy" data-id="${escapeHtml(p.id)}" type="button">${escapeHtml(t('act.copy'))}</button>
       ${p.photo ? `<button class="btn small" data-act="photo" data-id="${escapeHtml(p.id)}" type="button">${escapeHtml(t('panel.photo'))}</button>` : ''}
     </div>`;
 }
@@ -195,14 +208,16 @@ function renderMap(list) {
     if (p.accuracy_m) L.circle([p.lat, p.lng], { radius: p.accuracy_m, weight: 1, color: '#ffffff', fillOpacity: 0.08, interactive: false }).addTo(layer);
     markers.set(p.id, m);
   }
-  if (firstFit && list.length) {
-    map.fitBounds(L.latLngBounds(list.map((p) => [p.lat, p.lng])).pad(0.2), { maxZoom: 16 });
+  if (firstFit && (list.length || farms.length)) {
+    const b = L.latLngBounds(list.map((p) => [p.lat, p.lng]));
+    if (farmLayer.getLayers().length) b.extend(L.featureGroup(farmLayer.getLayers()).getBounds());
+    if (b.isValid()) map.fitBounds(b.pad(0.15), { maxZoom: 16 });
     firstFit = false;
   }
 }
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.leaflet-popup button[data-act]');
+  const btn = e.target.closest('.leaflet-popup [data-act]');
   if (btn) rowAction(btn.dataset.act, btn.dataset.id);
 });
 
@@ -231,13 +246,12 @@ function render() {
       return `<tr data-id="${escapeHtml(p.id)}" class="${p.id === activeId ? 'active' : ''}">
         <td><input type="checkbox" data-act="select" ${selected.has(p.id) ? 'checked' : ''} aria-label="Selecionar"></td>
         <td><strong>${escapeHtml(p.name)}</strong>${p.photo ? ' 📷' : ''}</td>
-        <td class="mono">${formatLatLng(p.lat, p.lng)}</td>
+        <td class="mono copyable" data-act="copy" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</td>
+        <td>${escapeHtml(farmOf(p))}</td>
         <td><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span></td>
-        <td>${escapeHtml(formatDate(p.captured_at))}</td>
-        <td>${escapeHtml(p.team_label || '')}</td>
+        <td>${escapeHtml(formatDate(p.captured_at))}<div class="muted small-text">${escapeHtml(p.team_label || '')}</div></td>
         <td><span class="badge ${done ? 'good' : 'ok'}">${escapeHtml(t('status.' + (done ? 'lancado' : 'pendente')))}</span></td>
         <td><div class="actions">
-          <button class="btn small" data-act="copy" type="button" title="${escapeHtml(t('act.copy'))}">${escapeHtml(t('panel.copyShort'))}</button>
           <button class="btn small" data-act="toggle" type="button" title="${escapeHtml(t(done ? 'panel.markPending' : 'panel.markDone'))}">${escapeHtml(t(done ? 'panel.undoShort' : 'panel.doneShort'))}</button>
           ${p.photo ? `<button class="btn small" data-act="photo" type="button">${escapeHtml(t('panel.photo'))}</button>` : ''}
           <button class="btn small" data-act="edit" type="button">${escapeHtml(t('panel.edit'))}</button>
@@ -287,7 +301,8 @@ async function rowAction(act, id) {
   if (!p) return;
   try {
     if (act === 'copy') {
-      if (await copyText(formatLatLng(p.lat, p.lng))) toast(t('act.copied'));
+      const coord = formatLatLng(p.lat, p.lng);
+      if (await copyText(coord)) toast(`${t('act.copied')} ${coord}`);
     } else if (act === 'toggle') {
       p.status = p.status === 'lancado' ? 'pendente' : 'lancado';
       await savePoint(p);
@@ -366,13 +381,113 @@ $('#photo-close').addEventListener('click', () => $('#photo-dialog').close());
 
 // ---------- Exportar ----------
 function exportList() {
-  return selected.size ? points.filter((p) => selected.has(p.id)) : filtered();
+  const list = selected.size ? points.filter((p) => selected.has(p.id)) : filtered();
+  return list.map((p) => ({ ...p, farm: farmOf(p) || null }));
 }
 $('#export-kml').addEventListener('click', () => {
   download(`pivot-scout-${stamp()}.kml`, toKML(exportList()), 'application/vnd.google-earth.kml+xml');
 });
 $('#export-geo').addEventListener('click', () => {
   download(`pivot-scout-${stamp()}.geojson`, JSON.stringify(toGeoJSON(exportList()), null, 2), 'application/geo+json');
+});
+
+// ---------- Fazendas (KML) ----------
+const farmCache = new Map();
+function farmOf(p) {
+  const key = `${p.lat},${p.lng}`;
+  if (!farmCache.has(key)) farmCache.set(key, farmLabel(p.lat, p.lng, farms));
+  return farmCache.get(key);
+}
+
+function renderFarms() {
+  farmCache.clear();
+  $('#farms-count').textContent = farms.length;
+  if (map) {
+    farmLayer.clearLayers();
+    for (const farm of farms) {
+      L.geoJSON(farm.geojson, {
+        style: { color: '#facc15', weight: 2, fillColor: '#facc15', fillOpacity: 0.08 },
+        pointToLayer: (_, latlng) => L.circleMarker(latlng, { radius: 4, color: '#facc15', weight: 2 }),
+        onEachFeature: (f, l) => {
+          const part = f.properties?.name;
+          l.bindTooltip(part && part !== farm.name ? `${farm.name} · ${part}` : farm.name, { sticky: true });
+        },
+      }).addTo(farmLayer);
+    }
+  }
+  const ul = $('#farm-list');
+  ul.innerHTML = farms.length
+    ? farms
+        .map(
+          (f) => `<li data-id="${escapeHtml(f.id)}">
+        <div class="title"><span>${escapeHtml(f.name)}</span><span class="badge info">${f.geojson.features.length} ${escapeHtml(t('farm.areas'))}</span></div>
+        <div class="meta">${escapeHtml(f.file || '')} · ${escapeHtml(formatDate(f.imported_at))}</div>
+        <div class="row">
+          <button class="btn small" data-act="zoom" type="button">${escapeHtml(t('farm.zoom'))}</button>
+          <button class="btn-danger small" data-act="remove" type="button">${escapeHtml(t('farm.remove'))}</button>
+        </div></li>`,
+        )
+        .join('')
+    : `<li class="muted">${escapeHtml(t('farm.empty'))}</li>`;
+}
+
+$('#farms-btn').addEventListener('click', () => {
+  $('#farm-err').textContent = '';
+  $('#farm-dialog').showModal();
+});
+$('#farm-close').addEventListener('click', () => $('#farm-dialog').close());
+$('#farm-import').addEventListener('click', () => $('#farm-file').click());
+
+$('#farm-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  const err = $('#farm-err');
+  const btn = $('#farm-import');
+  err.textContent = '';
+  try {
+    const { name: docName, geojson } = await readFarmFile(file);
+    const suggested = docName || file.name.replace(/\.(kml|kmz)$/i, '');
+    const name = prompt(t('farm.namePrompt'), suggested)?.trim();
+    if (!name) return;
+    btn.disabled = true;
+    btn.textContent = t('farm.saving');
+    const id = `${stamp()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
+    const rec = { id, name, file: file.name, imported_at: new Date().toISOString(), team_label: session.team_label, geojson };
+    const sha = await gh.putJSON(`farms/${id}.json`, rec, `Importa fazenda ${name}`);
+    farms.push({ ...rec, _sha: sha });
+    renderFarms();
+    render();
+    if (map) map.fitBounds(L.geoJSON(geojson).getBounds().pad(0.1));
+    toast(t('farm.imported'));
+  } catch (e2) {
+    if (e2.status) handleError(e2);
+    else err.textContent = e2.message || String(e2);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('farm.import');
+  }
+});
+
+$('#farm-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const farm = farms.find((f) => f.id === btn.closest('li').dataset.id);
+  if (!farm) return;
+  if (btn.dataset.act === 'zoom') {
+    $('#farm-dialog').close();
+    map?.fitBounds(L.geoJSON(farm.geojson).getBounds().pad(0.1));
+  } else if (btn.dataset.act === 'remove') {
+    if (!confirm(t('farm.removeConfirm', { name: farm.name }))) return;
+    try {
+      await gh.deleteFile(`farms/${farm.id}.json`, farm._sha, `Remove fazenda ${farm.name}`);
+      farms = farms.filter((f) => f !== farm);
+      renderFarms();
+      render();
+    } catch (e2) {
+      handleError(e2);
+    }
+  }
 });
 
 // ---------- Início ----------

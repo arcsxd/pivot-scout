@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Fazenda Santa Rita</name>
+    <Folder>
+      <Placemark>
+        <name>Talhão 1</name>
+        <Polygon>
+          <outerBoundaryIs><LinearRing><coordinates>
+            -47.935,-15.785,0 -47.925,-15.785,0 -47.925,-15.775,0 -47.935,-15.775,0 -47.935,-15.785,0
+          </coordinates></LinearRing></outerBoundaryIs>
+          <innerBoundaryIs><LinearRing><coordinates>
+            -47.9345,-15.7845 -47.9335,-15.7845 -47.9335,-15.7835 -47.9345,-15.7835
+          </coordinates></LinearRing></innerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>Sede</name>
+        <Point><coordinates>-47.94,-15.79,0</coordinates></Point>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>

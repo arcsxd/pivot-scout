@@ -68,3 +68,24 @@ test('KML é XML válido e escapa nomes', () => {
 test('formatLatLng com 6 casas', () => {
   assert.equal(formatLatLng(-15.1234567, -47.7654321), '-15.123457, -47.765432');
 });
+
+// ---------- KML / KMZ ----------
+import { readFileSync } from 'node:fs';
+import { kmzToKml, featureContaining, farmLabel } from '../js/kml.js';
+
+test('extrai doc.kml de dentro do KMZ', async () => {
+  const buf = readFileSync(new URL('./fixtures/fazenda.kmz', import.meta.url));
+  const kml = await kmzToKml(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+  assert.equal(kml, readFileSync(new URL('./fixtures/fazenda.kml', import.meta.url), 'utf8'));
+});
+
+test('ponto dentro da área, fora dela e dentro de um buraco', () => {
+  const ring = [[-47.935, -15.785], [-47.925, -15.785], [-47.925, -15.775], [-47.935, -15.775], [-47.935, -15.785]];
+  const hole = [[-47.9345, -15.7845], [-47.9335, -15.7845], [-47.9335, -15.7835], [-47.9345, -15.7835], [-47.9345, -15.7845]];
+  const geojson = { features: [{ properties: { name: 'Talhão 1' }, geometry: { type: 'Polygon', coordinates: [ring, hole] } }] };
+  assert.ok(featureContaining(-47.93, -15.78, geojson));
+  assert.equal(featureContaining(-47.94, -15.78, geojson), null);
+  assert.equal(featureContaining(-47.934, -15.784, geojson), null);
+  assert.equal(farmLabel(-15.78, -47.93, [{ name: 'Santa Rita', geojson }]), 'Santa Rita · Talhão 1');
+  assert.equal(farmLabel(-15.70, -47.93, [{ name: 'Santa Rita', geojson }]), '');
+});

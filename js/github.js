@@ -75,6 +75,11 @@ export class GitHub {
   async getFile(path) {
     try {
       const j = await this.req('GET', this.contentsPath(path));
+      if (!j.content && j.size > 0) {
+        // Arquivos acima de 1 MB vêm sem conteúdo: busca o arquivo bruto.
+        const raw = await this.req('GET', this.contentsPath(path), { accept: 'application/vnd.github.raw', raw: true });
+        return { sha: j.sha, text: await raw.text() };
+      }
       return { sha: j.sha, text: b64ToUtf8(j.content || '') };
     } catch (e) {
       if (e.status === 404) return null;
