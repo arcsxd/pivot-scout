@@ -35,9 +35,18 @@
 
     <section id="app" hidden>
       <div class="card">
-        <div class="gps-head">
-          <h2 data-i18n="gps.title">Posição atual</h2>
-          <span id="acc" class="badge">—</span>
+        <h2 data-i18n="gps.title">Posição atual</h2>
+        <div id="acc" class="gauge none" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-live="polite">
+          <span class="gauge-ripple" aria-hidden="true"></span>
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+            <circle class="gauge-arc" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="gauge-center">
+            <span class="gauge-label" data-i18n="gps.accuracy">Precisão</span>
+            <span class="gauge-value"><span id="acc-num">—</span><small> m</small></span>
+            <span id="acc-level" class="gauge-level"></span>
+          </div>
         </div>
         <div id="coords" class="coords" role="button" tabindex="0" data-i18n-title="act.clickCopy">
           <div><label>Lat</label><output id="lat">—</output></div>

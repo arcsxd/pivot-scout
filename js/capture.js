@@ -103,12 +103,44 @@ function setAccBadge(el, acc) {
   el.className = `badge ${accuracyLevel(acc)}`;
 }
 
+// Medidor redondo: arco cheio = precisão ótima. Escala logarítmica de 1 m a 30 m.
+const ARC = 2 * Math.PI * 52;
+let lastTs = 0;
+function renderGauge() {
+  const g = $('#acc');
+  const arc = g.querySelector('.gauge-arc');
+  const acc = current?.accuracy;
+  const level = current ? accuracyLevel(acc) : gpsMsg && gpsMsg !== t('gps.waiting') ? 'error' : 'none';
+  g.className = `gauge ${level}`;
+  if (!current) {
+    $('#acc-num').textContent = '—';
+    $('#acc-level').textContent = level === 'error' ? t('gps.noSignal') : t('gps.searching');
+    arc.style.strokeDashoffset = ARC;
+    g.setAttribute('aria-valuenow', 0);
+    return;
+  }
+  const frac = Math.min(1, Math.max(0.04, Math.log(30 / Math.max(acc, 1)) / Math.log(30)));
+  arc.style.strokeDasharray = ARC;
+  arc.style.strokeDashoffset = ARC * (1 - frac);
+  $('#acc-num').textContent = acc < 10 ? acc.toFixed(1) : Math.round(acc);
+  $('#acc-level').textContent = t(`gps.level.${level}`);
+  g.setAttribute('aria-valuenow', Math.round(frac * 100));
+  g.setAttribute('aria-valuetext', `${formatAccuracy(acc)} · ${t(`gps.level.${level}`)}`);
+  // Pulso a cada leitura nova do GPS.
+  if (current.timestamp !== lastTs) {
+    lastTs = current.timestamp;
+    g.classList.remove('pulse');
+    void g.offsetWidth;
+    g.classList.add('pulse');
+  }
+}
+
 function renderGPS() {
   if (current) {
     $('#lat').textContent = current.lat.toFixed(6);
     $('#lng').textContent = current.lng.toFixed(6);
-    setAccBadge($('#acc'), current.accuracy);
   }
+  renderGauge();
   const time = current ? t('gps.updated') + new Date(current.timestamp).toLocaleTimeString() : '';
   $('#gps-status').textContent = gpsMsg || time;
   $('#capture').disabled = !current;
