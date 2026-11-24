@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pivot Scout Setup</title>
+  <meta name="description" content="Configuração inicial do Pivot Scout: tokens, senha de admin e primeiro código.">
+  <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="../icons/icon.svg" alt="" width="28" height="28"><span>Pivot Scout · Configuração</span></div>
+  </header>
+  <main>
+    <section class="card">
+      <h1>Configuração inicial</h1>
+      <p class="muted">Faça isto uma vez. Os tokens são criptografados com a senha de admin e gravados em <code>admin.json</code> no repositório do site. Nada sai deste navegador sem criptografia, exceto as chamadas à API do GitHub.</p>
+      <form id="setup" autocomplete="off">
+        <label for="data-token">Token de dados</label>
+        <p class="hint" style="margin-top:0">Fine-grained, acesso só ao repo privado <code id="data-repo"></code>, permissão <b>Contents: Read and write</b>.</p>
+        <input id="data-token" type="password" required spellcheck="false">
+
+        <label for="site-token">Token de admin</label>
+        <p class="hint" style="margin-top:0">Fine-grained, acesso só ao repo <code id="site-repo"></code>, permissão <b>Contents: Read and write</b>. Fica guardado só para você (senha de admin).</p>
+        <input id="site-token" type="password" required spellcheck="false">
+
+        <label for="pw1">Senha de admin (mínimo 10 caracteres)</label>
+        <input id="pw1" type="password" required minlength="10">
+        <label for="pw2">Repita a senha</label>
+        <input id="pw2" type="password" required minlength="10">
+
+        <label for="first-team">Primeiro código de equipe (opcional)</label>
+        <input id="first-team" type="text" maxlength="60" placeholder="Ex.: Equipe Pelican">
+
+        <label class="check" id="overwrite-wrap" hidden><input id="overwrite" type="checkbox"> Já existe uma configuração. Quero substituir (todos os códigos atuais deixam de funcionar).</label>
+
+        <p id="err" class="error" role="alert"></p>
+        <button class="btn-primary big" type="submit">Testar e salvar</button>
+      </form>
+    </section>
+
+    <section id="done" class="card" hidden>
+      <h2>Pronto!</h2>
+      <p>Configuração gravada. Aguarde cerca de 1 minuto para o GitHub Pages publicar.</p>
+      <div id="first-code" hidden>
+        <p>Código da primeira equipe:</p>
+        <div id="first-code-value" class="code-box"></div>
+      </div>
+      <div class="row">
+        <a class="btn-primary" href="../admin.html">Abrir admin</a>
+        <a class="btn" href="../index.html">Abrir app de captura</a>
+      </div>
+    </section>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="setup.js"></script>
+</body>
+</html>

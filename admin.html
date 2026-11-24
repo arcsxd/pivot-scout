@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pivot Scout Admin</title>
+  <meta name="description" content="Administração dos códigos de equipe do Pivot Scout.">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Pivot Scout · Admin</span></div>
+    <div class="topbar-actions">
+      <a class="btn-ghost small" href="painel.html">Painel</a>
+      <button id="logout" class="btn-ghost small" type="button" hidden>Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login" class="card" hidden>
+      <h1>Admin</h1>
+      <form id="login-form" autocomplete="off">
+        <label for="pw">Senha de admin</label>
+        <input id="pw" type="password" required>
+        <p id="login-err" class="error" role="alert"></p>
+        <button class="btn-primary big" type="submit">Entrar</button>
+      </form>
+      <p class="hint">Ainda não configurou? Abra a <a href="tools/setup.html">configuração inicial</a>.</p>
+    </section>
+
+    <section id="app" hidden>
+      <div class="notice">As mudanças são gravadas no GitHub na hora, mas o GitHub Pages leva cerca de 1 minuto para publicar. Um código novo só funciona depois disso.</div>
+
+      <div class="card">
+        <h2>Novo código de equipe</h2>
+        <form id="new-team" autocomplete="off">
+          <label for="team-label">Nome da equipe ou operador</label>
+          <input id="team-label" type="text" required maxlength="60" placeholder="Ex.: Equipe Norte, João">
+          <button class="btn-primary big" type="submit">Gerar código</button>
+        </form>
+        <div id="new-code" hidden>
+          <p style="margin-top:12px">Código gerado. Passe para o operador:</p>
+          <div id="new-code-value" class="code-box"></div>
+          <button id="copy-new" class="btn" type="button">Copiar código</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Códigos ativos</h2>
+        <ul id="teams" class="list team-list"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Trocar token de dados</h2>
+        <p class="muted">Use se um código vazou ou se o token expirou. Revogar um código impede logins novos, mas um celular que já entrou continua com o token antigo até você gerar um token novo aqui.</p>
+        <form id="rotate" autocomplete="off">
+          <label for="new-token">Novo token (fine-grained, só o repo de dados)</label>
+          <input id="new-token" type="password" required spellcheck="false">
+          <button class="btn big" type="submit">Testar e trocar token</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Trocar senha de admin</h2>
+        <form id="change-pw" autocomplete="off">
+          <label for="pw1">Nova senha (mínimo 10 caracteres)</label>
+          <input id="pw1" type="password" required minlength="10">
+          <label for="pw2">Repita a nova senha</label>
+          <input id="pw2" type="password" required minlength="10">
+          <button class="btn big" type="submit">Trocar senha</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

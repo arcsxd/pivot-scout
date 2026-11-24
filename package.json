@@ -1,0 +1,11 @@
+{
+  "name": "pivot-scout",
+  "private": true,
+  "type": "module",
+  "description": "Captura da ponta externa do pivot para o PlaneView (Pelican 2).",
+  "scripts": {
+    "test": "node --test tests/unit.test.js",
+    "e2e": "node tests/e2e.mjs",
+    "serve": "python3 -m http.server 8080"
+  }
+}

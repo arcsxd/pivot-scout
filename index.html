@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pivot Scout</title>
+  <meta name="description" content="Captura da coordenada da ponta externa do pivot para o PlaneView.">
+  <meta name="theme-color" content="#166534">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Pivot Scout</span></div>
+    <div class="topbar-actions">
+      <span id="net" class="pill"></span>
+      <button id="lang" class="btn-ghost small" type="button">EN</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login" class="card" hidden>
+      <h1 data-i18n="login.title">Entrar</h1>
+      <p class="muted" data-i18n="login.lead"></p>
+      <form id="login-form" autocomplete="off">
+        <label for="code" data-i18n="login.code">Código da equipe</label>
+        <input id="code" class="code" type="text" autocapitalize="characters" spellcheck="false" required placeholder="ABC-XXXXX-XXXXX">
+        <p id="login-err" class="error" role="alert"></p>
+        <button class="btn-primary big" type="submit" data-i18n="login.submit">Entrar</button>
+      </form>
+    </section>
+
+    <section id="app" hidden>
+      <div class="card">
+        <div class="gps-head">
+          <h2 data-i18n="gps.title">Posição atual</h2>
+          <span id="acc" class="badge">—</span>
+        </div>
+        <div class="coords">
+          <div><label>Lat</label><output id="lat">—</output></div>
+          <div><label>Long</label><output id="lng">—</output></div>
+        </div>
+        <p id="gps-status" class="muted" style="margin-top:10px"></p>
+        <button id="capture" class="btn-primary big" type="button" disabled data-i18n="gps.capture">Capturar ponta do pivot</button>
+        <p class="hint" data-i18n="gps.hint"></p>
+      </div>
+
+      <form id="save-form" class="card" hidden novalidate>
+        <div class="gps-head">
+          <h2 data-i18n="save.title">Ponto capturado</h2>
+          <span id="cap-acc" class="badge">—</span>
+        </div>
+        <p id="cap-coord" class="mono" style="font-size:1.1rem;font-weight:700"></p>
+
+        <label for="name" data-i18n="save.name">Nome do pivot</label>
+        <input id="name" type="text" required maxlength="120" data-i18n-ph="save.namePh">
+        <p id="name-err" class="error" role="alert"></p>
+
+        <label data-i18n="save.photo">Foto</label>
+        <input id="photo" class="file-hidden" type="file" accept="image/*" capture="environment">
+        <div class="row">
+          <button id="photo-btn" class="btn grow" type="button" data-i18n="save.photoBtn">Tirar foto</button>
+          <button id="photo-remove" class="btn-ghost" type="button" hidden data-i18n="save.photoRemove">Remover foto</button>
+        </div>
+        <img id="photo-preview" class="photo-preview" alt="" hidden>
+
+        <button class="btn-primary big" type="submit" data-i18n="save.save">Salvar ponto</button>
+        <button id="discard" class="btn-ghost" type="button" style="width:100%;margin-top:8px" data-i18n="save.discard">Descartar</button>
+      </form>
+
+      <div class="card sync">
+        <div><strong id="pending-count">0</strong> <span data-i18n="sync.pending">pendente(s) de envio</span></div>
+        <button id="sync-now" class="btn" type="button" data-i18n="sync.now">Sincronizar agora</button>
+        <p id="sync-msg" class="muted"></p>
+      </div>
+
+      <section class="card">
+        <h2 data-i18n="list.title">Meus pontos</h2>
+        <ul id="points" class="list"></ul>
+      </section>
+
+      <footer class="foot">
+        <span id="team-label"></span>
+        <a href="painel.html" data-i18n="act.panel">Painel do PC</a>
+        <button id="logout" class="link" type="button" data-i18n="act.logout">Sair</button>
+      </footer>
+    </section>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/capture.js"></script>
+</body>
+</html>

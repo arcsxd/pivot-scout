@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pivot Scout Painel</title>
+  <meta name="description" content="Painel com os pontos de pivot capturados pelos operadores.">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="panel">
+  <header class="topbar">
+    <div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Pivot Scout</span><span id="who" class="pill" hidden></span></div>
+    <div class="topbar-actions">
+      <a id="admin-link" class="btn-ghost small" href="admin.html" hidden data-i18n="panel.admin">Admin</a>
+      <button id="refresh" class="btn small" type="button" hidden data-i18n="panel.refresh">Atualizar</button>
+      <button id="lang" class="btn-ghost small" type="button">EN</button>
+      <button id="logout" class="btn-ghost small" type="button" hidden data-i18n="act.logout">Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login" class="panel-login" hidden>
+      <div class="card">
+        <h1 data-i18n="login.title">Entrar</h1>
+        <p class="muted" data-i18n="login.leadPanel"></p>
+        <form id="login-form" autocomplete="off">
+          <label for="code" data-i18n="login.codeOrPass">Código da equipe ou senha de admin</label>
+          <input id="code" type="password" spellcheck="false" required>
+          <p id="login-err" class="error" role="alert"></p>
+          <button class="btn-primary big" type="submit" data-i18n="login.submit">Entrar</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="app" hidden>
+      <div class="toolbar">
+        <select id="filter" aria-label="Filtro">
+          <option value="all" data-i18n="panel.filterAll">Todos</option>
+          <option value="pendente" data-i18n="panel.filterPending">Pendentes</option>
+          <option value="lancado" data-i18n="panel.filterDone">Lançados</option>
+        </select>
+        <input id="search" type="search" data-i18n-ph="panel.search">
+        <span id="count" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="export-kml" class="btn small" type="button" data-i18n="panel.exportKml">Exportar KML</button>
+        <button id="export-geo" class="btn small" type="button" data-i18n="panel.exportGeo">Exportar GeoJSON</button>
+      </div>
+      <div class="panel-grid">
+        <div id="map"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th><input id="select-all" type="checkbox" aria-label="Selecionar todos"></th>
+                <th data-i18n="panel.colName">Pivot</th>
+                <th data-i18n="panel.colCoord">Lat, long</th>
+                <th data-i18n="panel.colAcc">Precisão</th>
+                <th data-i18n="panel.colDate">Capturado</th>
+                <th data-i18n="panel.colTeam">Equipe</th>
+                <th data-i18n="panel.colStatus">PlaneView</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form" method="dialog">
+      <h2 data-i18n="edit.title">Editar ponto</h2>
+      <label for="edit-name" data-i18n="save.name">Nome do pivot</label>
+      <input id="edit-name" type="text" required maxlength="120">
+      <div class="row">
+        <div class="grow"><label for="edit-lat">Lat</label><input id="edit-lat" type="text" inputmode="decimal" required></div>
+        <div class="grow"><label for="edit-lng">Long</label><input id="edit-lng" type="text" inputmode="decimal" required></div>
+      </div>
+      <p id="edit-err" class="error" role="alert"></p>
+      <div class="row">
+        <button id="edit-cancel" class="btn-ghost" type="button" data-i18n="edit.cancel">Cancelar</button>
+        <button class="btn-primary" type="submit" data-i18n="edit.save">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="photo-dialog" class="photo">
+    <img id="photo-img" alt="">
+    <div class="row"><button id="photo-close" class="btn" type="button">OK</button></div>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/painel.js"></script>
+</body>
+</html>
