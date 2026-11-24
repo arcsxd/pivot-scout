@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "enc": {
+    "v": 1,
+    "iter": 300000,
+    "salt": "MFzUolgKE5oMCIcbjPU9IA==",
+    "iv": "5WW6OcLorbSiQyH5",
+    "ct": "4mm3TGiyZ/Ba2Y6VQHAZHC+fo3YPAs4V0gB12sGYZXB+t0yTV2Anr7La88rgey34kthfOQFlGvugMoYFw+79a4Kh5JjapRQBbFpMdEILiLTyaDPOsfKtoi1FcQsmRi7OHUlkoYbkZZzGhtseYOCOxjWWj5C2j9bqvO5+ehDUrAdLSXpKAVDsF1V4tjXA1sCT/O/jH4WHgbyV+Naa/8x0/Fxo12BTG29V9RizKQbzIX17Nh8jj8xZx2q2OCXe11VRV79R0ceEXvU7n4+h+Uj2jiQlwPDQlvkexxDi+TEJ/cilOizUcghcikyXnUiMG76jxit7t7CAeGsNCPbu+SvvcYS1SP9lh0ENHGsZGD2a"
+  }
+}

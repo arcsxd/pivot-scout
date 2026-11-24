@@ -1,4 +1,17 @@
 {
   "version": 1,
-  "teams": []
+  "teams": [
+    {
+      "id": "5TA",
+      "label": "P25 - PLENAERO",
+      "created_at": "2026-11-24T14:24:57.134Z",
+      "enc": {
+        "v": 1,
+        "iter": 300000,
+        "salt": "V8hhWo/mWPronBPr4tyDLg==",
+        "iv": "H0rq1yDkmqBkOWet",
+        "ct": "3nCJvP2nj/5lkkEYdUp12/v0TXcWK1wzo2eWPokn7m/m/1+22pqi1jjTWRHI0IRNtE31Fq0yhEZIgOS++mXGSvWjMej08T1QI8PlFtyhAxi0mXuURAsDHjcw6xg1iRazxda7/NLaDR1R3ZL4P7xOuMyRnVMk2vRYuH10JwG3dcgOhtV0/ktgqpxcQOlQ4qbRavz1R4nxBslPC7//oU2Ufu58dsXD9rs="
+      }
+    }
+  ]
 }
