@@ -329,6 +329,13 @@ tbody tr.is-new { animation: row-new 1.6s ease-out 2; background: color-mix(in s
   .live.ok .live-dot, tbody tr.is-new, .marker-new { animation: none; }
 }
 
+.presence-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); margin-right: 8px; vertical-align: 1px; }
+.presence-dot.good { background: var(--good); box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); animation: presence-ping 2s infinite; }
+.presence-dot.ok { background: var(--ok); }
+.presence-offline { opacity: 0.65; }
+@keyframes presence-ping { 70% { box-shadow: 0 0 0 7px transparent; } }
+@media (prefers-reduced-motion: reduce) { .presence-dot.good { animation: none; } }
+
 td.empty { text-align: center; color: var(--muted); padding: 32px; cursor: default; }
 .panel-login { max-width: 440px; margin: 40px auto; padding: 0 16px; }
 

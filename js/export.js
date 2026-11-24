@@ -16,6 +16,7 @@ export function toGeoJSON(points) {
         accuracy_m: p.accuracy_m ?? null,
         captured_at: p.captured_at ?? null,
         team: p.team_label ?? null,
+        operator: p.operator || null,
         farm: p.farm ?? null,
         status: p.status ?? null,
       },
@@ -41,6 +42,7 @@ export function toKML(points, docName = 'Pivot Scout') {
         p.captured_at ? `Capturado: ${p.captured_at}` : null,
         p.farm ? `Fazenda: ${p.farm}` : null,
         p.team_label ? `Equipe: ${p.team_label}` : null,
+        p.operator ? `Operador: ${p.operator}` : null,
         p.status ? `Status: ${p.status}` : null,
       ]
         .filter(Boolean)

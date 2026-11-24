@@ -6,6 +6,7 @@ import { accuracyLevel, formatAccuracy } from './geo.js';
 import { formatLatLng, toGeoJSON, toKML } from './export.js';
 import { loginWithCode, loginAdmin, dataRepo } from './auth.js';
 import { readFarmFile, farmLabel } from './kml.js';
+import { heartbeat, newDeviceId, platform } from './presence.js';
 
 const SESSION_KEY = 'ps-panel-session';
 let session = null;
@@ -82,6 +83,29 @@ function showApp() {
   $('#admin-link').hidden = session.role !== 'admin';
   initMap();
   load().then(schedule);
+  panelHeartbeat();
+  setInterval(panelHeartbeat, 120000);
+}
+
+// Presença: o admin vê os painéis abertos.
+function panelHeartbeat() {
+  if (!gh || !navigator.onLine) return;
+  let id;
+  try {
+    id = localStorage.getItem('ps-device') || newDeviceId();
+    localStorage.setItem('ps-device', id);
+  } catch {
+    id ||= newDeviceId();
+  }
+  heartbeat(gh, {
+    device_id: id,
+    app: 'painel',
+    team_id: session.team_id,
+    team_label: session.team_label,
+    operator: '',
+    platform: platform(),
+    visible: document.visibilityState === 'visible',
+  });
 }
 
 function handleError(e) {
@@ -247,7 +271,7 @@ function announce(arrived) {
     const farm = farmOf(p);
     const body = [
       `${formatLatLng(p.lat, p.lng)} · ${formatAccuracy(p.accuracy_m)}`,
-      [farm, p.team_label].filter(Boolean).join(' · '),
+      [farm, p.team_label, p.operator].filter(Boolean).join(' · '),
     ]
       .filter(Boolean)
       .join('\n');
@@ -399,7 +423,7 @@ function render() {
         <td class="mono copyable" data-act="copy" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</td>
         <td>${escapeHtml(farmOf(p))}</td>
         <td><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span></td>
-        <td>${escapeHtml(formatDate(p.captured_at))}<div class="muted small-text">${escapeHtml(p.team_label || '')}</div></td>
+        <td>${escapeHtml(formatDate(p.captured_at))}<div class="muted small-text">${escapeHtml([p.team_label, p.operator].filter(Boolean).join(' · '))}</div></td>
         <td><span class="badge ${done ? 'good' : 'ok'}">${escapeHtml(t('status.' + (done ? 'lancado' : 'pendente')))}</span></td>
         <td><div class="actions">
           <button class="btn small" data-act="toggle" type="button" title="${escapeHtml(t(done ? 'panel.markPending' : 'panel.markDone'))}">${escapeHtml(t(done ? 'panel.undoShort' : 'panel.doneShort'))}</button>

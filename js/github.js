@@ -65,8 +65,9 @@ export class GitHub {
     return res.json();
   }
 
-  contentsPath(p) {
-    return 'contents/' + p.split('/').map(encodeURIComponent).join('/');
+  contentsPath(p, ref) {
+    const q = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    return 'contents/' + p.split('/').map(encodeURIComponent).join('/') + q;
   }
 
   repoInfo() {
@@ -74,12 +75,12 @@ export class GitHub {
   }
 
   /** Lê um arquivo de texto. Retorna {sha, text} ou null se não existir. */
-  async getFile(path) {
+  async getFile(path, ref) {
     try {
-      const j = await this.req('GET', this.contentsPath(path));
+      const j = await this.req('GET', this.contentsPath(path, ref));
       if (!j.content && j.size > 0) {
         // Arquivos acima de 1 MB vêm sem conteúdo: busca o arquivo bruto.
-        const raw = await this.req('GET', this.contentsPath(path), { accept: 'application/vnd.github.raw', raw: true });
+        const raw = await this.req('GET', this.contentsPath(path, ref), { accept: 'application/vnd.github.raw', raw: true });
         return { sha: j.sha, text: await raw.text() };
       }
       return { sha: j.sha, text: b64ToUtf8(j.content || '') };
@@ -98,10 +99,11 @@ export class GitHub {
    * Lista uma pasta. Pasta inexistente vira lista vazia.
    * Usa ETag: se nada mudou o GitHub responde 304, que não conta no limite de consultas.
    */
-  async listDir(path) {
-    const cached = this.etags.get(path);
+  async listDir(path, ref) {
+    const key = `${ref || ''}:${path}`;
+    const cached = this.etags.get(key);
     try {
-      const res = await this.req('GET', this.contentsPath(path), {
+      const res = await this.req('GET', this.contentsPath(path, ref), {
         raw: true,
         headers: cached ? { 'If-None-Match': cached.etag } : {},
       });
@@ -109,11 +111,11 @@ export class GitHub {
       const j = await res.json();
       const data = Array.isArray(j) ? j : [];
       const etag = res.headers.get('ETag');
-      if (etag) this.etags.set(path, { etag, data });
+      if (etag) this.etags.set(key, { etag, data });
       return data;
     } catch (e) {
       if (e.status === 404) {
-        this.etags.delete(path);
+        this.etags.delete(key);
         return [];
       }
       throw e;
@@ -129,9 +131,10 @@ export class GitHub {
   }
 
   /** Cria ou atualiza um arquivo (conteúdo em base64). Retorna o novo sha. */
-  async putFile(path, b64, message, sha) {
+  async putFile(path, b64, message, sha, branch) {
     const body = { message, content: b64 };
     if (sha) body.sha = sha;
+    if (branch) body.branch = branch;
     const j = await this.req('PUT', this.contentsPath(path), { body });
     return j.content.sha;
   }

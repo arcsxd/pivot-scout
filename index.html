@@ -28,6 +28,8 @@
       <form id="login-form" autocomplete="off">
         <label for="code" data-i18n="login.code">Código da equipe</label>
         <input id="code" class="code" type="text" autocapitalize="characters" spellcheck="false" required placeholder="ABC-XXXXX-XXXXX">
+        <label for="operator" data-i18n="login.operator">Seu nome (opcional)</label>
+        <input id="operator" type="text" maxlength="40" autocomplete="name" data-i18n-ph="login.operatorPh">
         <p id="login-err" class="error" role="alert"></p>
         <button class="btn-primary big" type="submit" data-i18n="login.submit">Entrar</button>
       </form>

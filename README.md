@@ -63,6 +63,16 @@ No painel do PC, use **Fazendas → Importar KML / KMZ**. Serve um arquivo expor
 
 Clique (ou toque) em qualquer `lat, long`: na tabela, no balão do mapa, na lista do celular ou na posição atual do GPS. A coordenada é copiada no formato `-15.780123, -47.929234`.
 
+## Quem está online (admin)
+
+Em `admin.html`, o cartão **Quem está online** lista cada aparelho com:
+- equipe e nome do operador (o operador digita o nome, opcional, no login do celular);
+- se é o app de captura ou o painel do PC, e o sistema (Android, iPhone, Windows…);
+- o status: **Online**, **Em segundo plano** ou **Offline**, e quando foi visto pela última vez;
+- no celular: pontos pendentes de envio, precisão do GPS e a última captura.
+
+Como funciona: celulares mandam um sinal a cada 1 min com o app aberto, e painéis a cada 2 min. Os sinais ficam em `presence/` na branch `presence` do repo de dados, separada para não poluir o histórico. O admin compacta essa branch a cada login.
+
 ## Segurança: o que saber
 
 - Qualquer pessoa com um código válido consegue ler e gravar no repo de dados.

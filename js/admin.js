@@ -1,6 +1,8 @@
 // Painel de admin: criar e revogar códigos de equipe, trocar token e senha.
 import { $, copyText, escapeHtml, formatDate, toast } from './ui.js';
-import { siteRepo } from './auth.js';
+import { siteRepo, dataRepo } from './auth.js';
+import { readPresence, compactPresence, presenceStatus, KEEP_MS } from './presence.js';
+import { formatAccuracy, accuracyLevel } from './geo.js';
 import { decryptJSON } from './crypto.js';
 import { buildTeam, checkDataToken, reencryptTeams, writeConfig, MIN_ADMIN_PASSWORD } from './adminlib.js';
 
@@ -89,6 +91,7 @@ $('#login-form').addEventListener('submit', async (e) => {
     $('#app').hidden = false;
     $('#logout').hidden = false;
     await reload();
+    startPresence();
   } catch (e2) {
     err.textContent = e2.message || String(e2);
   } finally {
@@ -98,6 +101,84 @@ $('#login-form').addEventListener('submit', async (e) => {
 });
 
 $('#logout').addEventListener('click', () => location.reload());
+
+// ---------- Quem está online ----------
+let compacted = false;
+
+function ago(iso) {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (s < 60) return `há ${s} s`;
+  if (s < 3600) return `há ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `há ${Math.floor(s / 3600)} h`;
+  return `há ${Math.floor(s / 86400)} dia(s)`;
+}
+
+const STATUS = {
+  online: ['good', 'Online'],
+  background: ['ok', 'Em segundo plano'],
+  offline: ['', 'Offline'],
+};
+
+let presence = [];
+
+function renderPresence() {
+  const ul = $('#presence');
+  const now = Date.now();
+  const list = presence
+    .filter((r) => now - Date.parse(r.last_seen) < KEEP_MS)
+    .map((r) => ({ ...r, _st: presenceStatus(r, now) }))
+    .sort((a, b) => {
+      const order = { online: 0, background: 1, offline: 2 };
+      return order[a._st] - order[b._st] || b.last_seen.localeCompare(a.last_seen);
+    });
+  const online = list.filter((r) => r._st !== 'offline').length;
+  $('#presence-summary').textContent = `${online} online`;
+  $('#presence-summary').className = `badge ${online ? 'good' : ''}`;
+  if (!list.length) {
+    ul.innerHTML = '<li class="muted">Nenhum aparelho conectou ainda.</li>';
+    return;
+  }
+  ul.innerHTML = list
+    .map((r) => {
+      const [cls, label] = STATUS[r._st];
+      const who = r.operator ? `${escapeHtml(r.operator)} <span class="muted">· ${escapeHtml(r.team_label)}</span>` : escapeHtml(r.team_label);
+      const icon = r.app === 'painel' ? '💻' : '📱';
+      const kind = r.app === 'painel' ? 'Painel do PC' : 'App de captura';
+      const extra = [];
+      if (r.app !== 'painel') {
+        if (r.pending) extra.push(`<span class="badge ok">${r.pending} pendente(s)</span>`);
+        if (r.gps?.accuracy != null) extra.push(`<span class="badge ${accuracyLevel(r.gps.accuracy)}">GPS ${formatAccuracy(r.gps.accuracy)}</span>`);
+        if (r.last_capture_at) extra.push(`<span>última captura ${escapeHtml(ago(r.last_capture_at))}</span>`);
+      }
+      return `<li class="presence-${r._st}">
+        <div class="title"><span><span class="presence-dot ${cls}" aria-hidden="true"></span>${icon} ${who}</span><span class="badge ${cls}">${label}</span></div>
+        <div class="meta"><span>${kind}${r.platform ? ' · ' + escapeHtml(r.platform) : ''}</span><span>visto ${escapeHtml(ago(r.last_seen))}</span>${extra.join('')}</div>
+      </li>`;
+    })
+    .join('');
+}
+
+async function loadPresence() {
+  try {
+    const gh = dataRepo(payload.data_token);
+    presence = await readPresence(gh);
+    renderPresence();
+    if (!compacted && presence.length) {
+      compacted = true;
+      compactPresence(gh, presence).catch(() => {});
+    }
+  } catch (e) {
+    $('#presence').innerHTML = `<li class="error">Não foi possível ler a presença: ${escapeHtml(e.message)}</li>`;
+  }
+}
+
+function startPresence() {
+  loadPresence();
+  setInterval(() => {
+    if (document.visibilityState === 'visible') loadPresence();
+  }, 20000);
+  setInterval(renderPresence, 5000); // atualiza o "visto há"
+}
 
 // ---------- Novo código ----------
 $('#new-team').addEventListener('submit', (e) => {

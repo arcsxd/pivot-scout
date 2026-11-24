@@ -14,6 +14,7 @@ export function toRecord(p) {
     captured_at: p.captured_at,
     team_id: p.team_id,
     team_label: p.team_label,
+    operator: p.operator || '',
     photo: p.photoBlob ? `photos/${p.id}.jpg` : null,
     status: 'pendente',
     updated_at: new Date().toISOString(),

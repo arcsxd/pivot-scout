@@ -6,6 +6,7 @@ import { formatLatLng } from './export.js';
 import { kvGet, kvSet, kvDel, putPoint, getPoints, deletePoint } from './store.js';
 import { loginWithCode, dataRepo } from './auth.js';
 import { syncPending } from './sync.js';
+import { heartbeat, newDeviceId, platform } from './presence.js';
 
 let session = null;
 let current = null; // última leitura do GPS
@@ -45,6 +46,7 @@ $('#login-form').addEventListener('submit', async (e) => {
       err.textContent = t('login.invalid');
       return;
     }
+    s.operator = $('#operator').value.trim();
     session = s;
     await kvSet('session', s);
     showApp();
@@ -64,6 +66,7 @@ $('#logout').addEventListener('click', async () => {
 });
 
 function showLogin() {
+  stopHeartbeat();
   $('#app').hidden = true;
   $('#login').hidden = false;
   $('#code').focus();
@@ -72,11 +75,53 @@ function showLogin() {
 function showApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
-  $('#team-label').textContent = session.team_label;
+  $('#team-label').textContent = session.operator ? `${session.team_label} · ${session.operator}` : session.team_label;
   startGPS();
   renderList();
   trySync();
+  startHeartbeat();
 }
+
+// ---------- Presença (admin vê quem está online) ----------
+let deviceId = null;
+let hbTimer = null;
+let lastCaptureAt = null;
+
+async function sendHeartbeat() {
+  if (!session || !navigator.onLine) return;
+  deviceId ||= (await kvGet('device_id')) || newDeviceId();
+  await kvSet('device_id', deviceId);
+  const pending = (await getPoints()).filter((p) => !p.synced).length;
+  await heartbeat(dataRepo(session.data_token), {
+    device_id: deviceId,
+    app: 'captura',
+    team_id: session.team_id,
+    team_label: session.team_label,
+    operator: session.operator || '',
+    platform: platform(),
+    visible: document.visibilityState === 'visible',
+    pending,
+    gps: current ? { lat: current.lat, lng: current.lng, accuracy: Math.round(current.accuracy * 10) / 10 } : null,
+    last_capture_at: lastCaptureAt,
+  });
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  sendHeartbeat();
+  hbTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') sendHeartbeat();
+  }, 60000);
+}
+
+function stopHeartbeat() {
+  clearInterval(hbTimer);
+  hbTimer = null;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (hbTimer) sendHeartbeat(); // avisa quando sai ou volta para o app
+});
 
 // ---------- GPS ----------
 function startGPS() {
@@ -230,11 +275,13 @@ $('#save-form').addEventListener('submit', async (e) => {
     captured_at: when.toISOString(),
     team_id: session.team_id,
     team_label: session.team_label,
+    operator: session.operator || '',
     photoBlob: photoBlob || null,
     photo_uploaded: false,
     synced: false,
   };
   await putPoint(point);
+  lastCaptureAt = point.captured_at;
   resetForm();
   toast(t('save.saved'));
   await renderList();
@@ -322,6 +369,7 @@ async function trySync(manual = false) {
     msg.textContent = t('sync.error') + res.lastError.message;
   } else {
     msg.textContent = t('sync.sent') + res.sent;
+    if (res.sent) sendHeartbeat();
   }
 }
 

@@ -37,15 +37,24 @@ const BASE = `http://127.0.0.1:${server.address().port}/pivot-scout/`;
 // ---------- GitHub simulado ----------
 const DATA_TOKEN = 'github_pat_DATA_test';
 const SITE_TOKEN = 'github_pat_SITE_test';
+function makeRepo(token, isPrivate) {
+  const main = new Map();
+  return { token, private: isPrivate, files: main, branches: { main }, heads: { main: 0 }, trees: new Map(), commits: new Map() };
+}
 const repos = {
-  'arcsxd/pivot-scout-data': { token: DATA_TOKEN, files: new Map(), private: true },
-  'arcsxd/pivot-scout': { token: SITE_TOKEN, files: new Map(), private: false, commit: 0, trees: new Map(), commits: new Map() },
+  'arcsxd/pivot-scout-data': makeRepo(DATA_TOKEN, true),
+  'arcsxd/pivot-scout': makeRepo(SITE_TOKEN, false),
 };
 let shaN = 0;
 const newSha = () => `sha${++shaN}`;
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': 'ETag' };
 let notModified = 0;
-const textOf = (repo, path) => repos[repo].files.get(path)?.bytes.toString('utf8');
+const textOf = (repo, path, branch = 'main') => repos[repo].branches[branch]?.get(path)?.bytes.toString('utf8');
+
+function blobBySha(repo, sha) {
+  for (const map of Object.values(repo.branches)) for (const f of map.values()) if (f.sha === sha) return f.bytes;
+  return null;
+}
 
 async function github(route) {
   const req = route.request();
@@ -64,13 +73,16 @@ async function github(route) {
 
   if (rest.startsWith('contents/')) {
     const path = rest.slice('contents/'.length);
-    const f = repo.files.get(path);
+    const branch = (method === 'GET' ? url.searchParams.get('ref') : body?.branch) || 'main';
+    const files = repo.branches[branch];
+    if (!files) return json(404, { message: method === 'GET' ? `No commit found for the ref ${branch}` : `Branch ${branch} not found` });
+    const f = files.get(path);
     if (method === 'GET') {
       if (f) {
         if ((req.headers().accept || '').includes('raw')) return route.fulfill({ status: 200, headers: CORS, body: f.bytes });
-        return json(200, { type: 'file', name: path.split('/').pop(), path, sha: f.sha, content: f.bytes.toString('base64') });
+        return json(200, { type: 'file', name: path.split('/').pop(), path, sha: f.sha, size: f.bytes.length, content: f.bytes.toString('base64') });
       }
-      const kids = [...repo.files.entries()].filter(([k]) => k.startsWith(path + '/') && !k.slice(path.length + 1).includes('/'));
+      const kids = [...files.entries()].filter(([k]) => k.startsWith(path + '/') && !k.slice(path.length + 1).includes('/'));
       if (kids.length) {
         const list = kids.map(([k, v]) => ({ type: 'file', name: k.split('/').pop(), path: k, sha: v.sha }));
         const etag = '"' + list.map((x) => x.sha).join('.') + '"';
@@ -86,21 +98,35 @@ async function github(route) {
       if (f && !body.sha) return json(422, { message: '"sha" wasn\'t supplied.' });
       if (f && body.sha !== f.sha) return json(409, { message: 'sha mismatch' });
       const sha = newSha();
-      repo.files.set(path, { bytes: Buffer.from(body.content, 'base64'), sha });
+      files.set(path, { bytes: Buffer.from(body.content, 'base64'), sha });
+      repo.heads[branch]++;
       return json(f ? 200 : 201, { content: { sha, path } });
     }
     if (method === 'DELETE') {
       if (!f) return json(404, { message: 'Not Found' });
       if (body.sha !== f.sha) return json(409, { message: 'sha mismatch' });
-      repo.files.delete(path);
+      files.delete(path);
+      repo.heads[branch]++;
       return json(200, { commit: {} });
     }
   }
-  if (rest === 'git/ref/heads/main') return json(200, { object: { sha: `c${repo.commit}` } });
+  let mm;
+  if ((mm = rest.match(/^git\/ref\/heads\/(.+)$/))) {
+    if (!repo.branches[mm[1]]) return json(404, { message: 'Not Found' });
+    return json(200, { object: { sha: `c-${mm[1]}-${repo.heads[mm[1]]}` } });
+  }
+  if (rest === 'git/refs' && method === 'POST') {
+    const name = body.ref.replace('refs/heads/', '');
+    if (repo.branches[name]) return json(422, { message: 'Reference already exists' });
+    const from = body.sha.split('-')[1];
+    repo.branches[name] = new Map(repo.branches[from]);
+    repo.heads[name] = 0;
+    return json(201, {});
+  }
   if (rest.startsWith('git/commits/') && method === 'GET') return json(200, { tree: { sha: 'base' } });
   if (rest === 'git/trees' && method === 'POST') {
     const sha = newSha();
-    repo.trees.set(sha, body.tree);
+    repo.trees.set(sha, { base: !!body.base_tree, items: body.tree });
     return json(201, { sha });
   }
   if (rest === 'git/commits' && method === 'POST') {
@@ -108,11 +134,17 @@ async function github(route) {
     repo.commits.set(sha, body.tree);
     return json(201, { sha });
   }
-  if (rest === 'git/refs/heads/main' && method === 'PATCH') {
-    for (const item of repo.trees.get(repo.commits.get(body.sha))) {
-      repo.files.set(item.path, { bytes: Buffer.from(item.content, 'utf8'), sha: newSha() });
+  if ((mm = rest.match(/^git\/refs\/heads\/(.+)$/)) && method === 'PATCH') {
+    const tree = repo.trees.get(repo.commits.get(body.sha));
+    const target = tree.base ? repo.branches[mm[1]] : new Map();
+    for (const item of tree.items) {
+      const bytes = item.content != null ? Buffer.from(item.content, 'utf8') : blobBySha(repo, item.sha);
+      target.set(item.path, { bytes, sha: item.content != null ? newSha() : item.sha });
     }
-    repo.commit++;
+    repo.branches[mm[1]] = target;
+    if (mm[1] === 'main') repo.files = target;
+    repo.heads[mm[1]]++;
+    if (body.force) repo.compactions = (repo.compactions || 0) + 1;
     return json(200, {});
   }
   return json(404, { message: `mock: ${method} ${rest}` });
@@ -197,6 +229,7 @@ try {
   await cap.waitForFunction(() => document.querySelector('#login-err').textContent.length > 0);
   log('código revogado é recusado');
   await cap.fill('#code', code.toLowerCase());
+  await cap.fill('#operator', 'João');
   await cap.click('#login-form button');
   await cap.waitForSelector('#app:not([hidden])');
   await cap.waitForFunction(() => !document.querySelector('#capture').disabled);
@@ -240,6 +273,7 @@ try {
   assert.equal(rec.accuracy_m, 4);
   assert.equal(rec.status, 'pendente');
   assert.equal(rec.team_label, 'Equipe Pelican');
+  assert.equal(rec.operator, 'João');
   assert.ok(rec.photo.startsWith('photos/'));
   await cap.locator('#points li', { hasText: 'Pivot 13' }).locator('.copyable').click();
   await cap.waitForFunction(() => document.querySelector('#toast').textContent.includes('-15.785500, -47.934100'));
@@ -398,6 +432,42 @@ try {
   await panel2.click('#login-form button');
   await panel2.waitForSelector('#admin-link:not([hidden])');
   log('senha de admin entra no painel');
+
+  // ---------- Admin: quem está online ----------
+  const presenceFiles = () => [...(repos['arcsxd/pivot-scout-data'].branches.presence?.keys() || [])].filter((k) => k.startsWith('presence/'));
+  assert.ok(presenceFiles().length >= 2, 'celular e painel mandam sinal de vida: ' + presenceFiles());
+  const admin2 = await desk.newPage();
+  admin2.on('pageerror', (e) => console.error('pageerror(admin2):', e));
+  await admin2.goto(BASE + 'admin.html');
+  await admin2.fill('#pw', ADMIN_PW);
+  await admin2.click('#login-form button');
+  await admin2.waitForFunction(() => document.querySelectorAll('#presence li[class^="presence-"]').length >= 2, null, { timeout: 20000 });
+  const phoneRow = admin2.locator('#presence li', { hasText: 'João' });
+  assert.match(await phoneRow.textContent(), /Online/);
+  assert.match(await phoneRow.textContent(), /App de captura/);
+  assert.match(await phoneRow.textContent(), /Equipe Pelican/);
+  assert.match(await phoneRow.textContent(), /GPS ±3\.0 m/);
+  assert.match(await admin2.locator('#presence li', { hasText: 'Painel do PC' }).first().textContent(), /Online/);
+  assert.match(await admin2.textContent('#presence-summary'), /[1-9]\d* online/);
+  await admin2.waitForFunction(() => true);
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.ok(repos['arcsxd/pivot-scout-data'].compactions >= 1, 'branch de presença compactada');
+  assert.ok([...repos['arcsxd/pivot-scout-data'].branches.presence.keys()].every((k) => k.startsWith('presence/')));
+  await admin2.locator('#presence').scrollIntoViewIfNeeded();
+  await admin2.screenshot({ path: join(SHOTS, '9-admin-online.png') });
+
+  // Celular sai do app: aparece "Em segundo plano"
+  await cap.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await new Promise((r) => setTimeout(r, 800));
+  await admin2.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await admin2.reload();
+  await admin2.fill('#pw', ADMIN_PW);
+  await admin2.click('#login-form button');
+  await admin2.waitForFunction(() => /Em segundo plano/.test(document.querySelector('#presence').textContent), null, { timeout: 20000 });
+  log('admin vê quem está online (João no celular, painel no PC) e quem saiu do app');
 
   // ---------- 5. Offline com service worker ----------
   const sw = await browser.newContext({ ...devices['Pixel 7'] });
