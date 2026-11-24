@@ -80,7 +80,7 @@ function showApp() {
   $('#who').textContent = session.team_label;
   $('#admin-link').hidden = session.role !== 'admin';
   initMap();
-  load();
+  load().then(schedule);
 }
 
 function handleError(e) {
@@ -121,12 +121,78 @@ function cacheSet(sha, data) {
   } catch { /* cheio */ }
 }
 
-async function load() {
-  $('#rows').innerHTML = `<tr><td class="empty" colspan="8">${escapeHtml(t('panel.loading'))}</td></tr>`;
+// ---------- Atualização automática ----------
+const AUTO_KEY = 'ps-panel-auto';
+let lastSig = null;
+let lastOk = 0;
+let liveState = 'idle'; // ok | error | paused | idle
+let loading = false;
+let busy = 0; // gravações em andamento
+let timer = null;
+const newIds = new Map(); // id -> quando chegou
+let unseen = 0;
+const baseTitle = document.title;
+
+function autoSeconds() {
+  return Number($('#auto').value) || 0;
+}
+
+function schedule() {
+  clearTimeout(timer);
+  const secs = autoSeconds();
+  if (!secs || !gh) return;
+  timer = setTimeout(tick, secs * 1000);
+}
+
+async function tick() {
+  const dialogOpen = [...document.querySelectorAll('dialog')].some((d) => d.open);
+  if (document.visibilityState === 'visible' && !dialogOpen && !busy) await load({ silent: true });
+  schedule();
+}
+
+function renderLive() {
+  const el = $('#live');
+  if (!el) return;
+  const secs = autoSeconds();
+  const state = !secs ? 'paused' : liveState;
+  el.className = `live ${state}`;
+  const ago = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : null;
+  const agoText = ago == null ? '' : ago < 60 ? t('live.secs', { n: ago }) : t('live.mins', { n: Math.floor(ago / 60) });
+  $('#live-text').textContent =
+    state === 'error' ? t('live.error') : state === 'paused' ? `${t('live.paused')}${agoText ? ' · ' + agoText : ''}` : `${t('live.on')}${agoText ? ' · ' + agoText : ''}`;
+}
+setInterval(renderLive, 1000);
+
+function setUnseen(n) {
+  unseen = n;
+  document.title = n ? `(${n}) ${baseTitle}` : baseTitle;
+}
+addEventListener('focus', () => setUnseen(0));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && gh && autoSeconds()) {
+    clearTimeout(timer);
+    tick();
+  }
+});
+
+async function load({ silent = false } = {}) {
+  if (loading) return;
+  loading = true;
+  if (!silent) $('#rows').innerHTML = `<tr><td class="empty" colspan="8">${escapeHtml(t('panel.loading'))}</td></tr>`;
   try {
     const [pointDir, farmDir] = await Promise.all([gh.listDir('points'), gh.listDir('farms')]);
     const entries = pointDir.filter((e) => e.type === 'file' && e.name.endsWith('.json'));
     const farmEntries = farmDir.filter((e) => e.type === 'file' && e.name.endsWith('.json'));
+    lastOk = Date.now();
+    liveState = 'ok';
+    const sig = [...entries, ...farmEntries].map((e) => e.sha).sort().join(',');
+    if (sig === lastSig) {
+      renderLive();
+      return;
+    }
+    const firstLoad = lastSig === null;
+    lastSig = sig;
+    const before = new Set(points.map((p) => p.id));
     farms = (
       await mapLimit(farmEntries, 4, async (e) => {
         const f = await gh.getFile(e.path);
@@ -146,12 +212,38 @@ async function load() {
     });
     points = loaded.filter(Boolean).sort((a, b) => (b.captured_at || '').localeCompare(a.captured_at || ''));
     selected = new Set([...selected].filter((id) => points.some((p) => p.id === id)));
+    if (!firstLoad) {
+      const arrived = points.filter((p) => !before.has(p.id));
+      for (const p of arrived) newIds.set(p.id, Date.now());
+      if (arrived.length) {
+        toast(arrived.length === 1 ? t('live.newOne', { name: arrived[0].name }) : t('live.newMany', { n: arrived.length }));
+        if (document.visibilityState !== 'visible' || !document.hasFocus()) setUnseen(unseen + arrived.length);
+      }
+    }
     render();
   } catch (e) {
-    $('#rows').innerHTML = '';
-    handleError(e);
+    if (e?.status === 401 || e?.status === 403 || !silent) {
+      if (!silent) $('#rows').innerHTML = '';
+      handleError(e);
+    }
+    liveState = 'error';
+  } finally {
+    loading = false;
+    renderLive();
   }
 }
+
+// Destaque de "novo" some depois de 2 minutos.
+setInterval(() => {
+  let changed = false;
+  for (const [id, at] of newIds) {
+    if (Date.now() - at > 120000) {
+      newIds.delete(id);
+      changed = true;
+    }
+  }
+  if (changed) render();
+}, 10000);
 
 async function savePoint(p) {
   const { _sha, ...rec } = p;
@@ -200,6 +292,7 @@ function renderMap(list) {
       color: '#ffffff',
       fillColor: done ? '#16a34a' : '#f59e0b',
       fillOpacity: 1,
+      className: newIds.has(p.id) ? 'marker-new' : '',
     })
       .bindTooltip(p.name, { direction: 'top', offset: [0, -8] })
       .bindPopup(() => popupHtml(p))
@@ -243,9 +336,9 @@ function render() {
   $('#rows').innerHTML = list
     .map((p) => {
       const done = p.status === 'lancado';
-      return `<tr data-id="${escapeHtml(p.id)}" class="${p.id === activeId ? 'active' : ''}">
+      return `<tr data-id="${escapeHtml(p.id)}" class="${p.id === activeId ? 'active' : ''} ${newIds.has(p.id) ? 'is-new' : ''}">
         <td><input type="checkbox" data-act="select" ${selected.has(p.id) ? 'checked' : ''} aria-label="Selecionar"></td>
-        <td><strong>${escapeHtml(p.name)}</strong>${p.photo ? ' 📷' : ''}</td>
+        <td><strong>${escapeHtml(p.name)}</strong>${p.photo ? ' 📷' : ''}${newIds.has(p.id) ? ` <span class="badge info">${escapeHtml(t('live.newTag'))}</span>` : ''}</td>
         <td class="mono copyable" data-act="copy" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</td>
         <td>${escapeHtml(farmOf(p))}</td>
         <td><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span></td>
@@ -284,6 +377,7 @@ $('#rows').addEventListener('click', (e) => {
     render();
     return;
   }
+  if (newIds.delete(id)) tr.classList.remove('is-new');
   if (el) rowAction(el.dataset.act, id);
   else setActive(id);
 });
@@ -294,11 +388,23 @@ $('#select-all').addEventListener('change', (e) => {
 });
 $('#filter').addEventListener('change', render);
 $('#search').addEventListener('input', render);
-$('#refresh').addEventListener('click', load);
+$('#refresh').addEventListener('click', () => load({ silent: true }));
+try {
+  $('#auto').value = localStorage.getItem(AUTO_KEY) ?? '15';
+} catch { /* ok */ }
+$('#auto').addEventListener('change', () => {
+  try {
+    localStorage.setItem(AUTO_KEY, $('#auto').value);
+  } catch { /* ok */ }
+  renderLive();
+  if (autoSeconds()) tick();
+  else clearTimeout(timer);
+});
 
 async function rowAction(act, id) {
   const p = points.find((x) => x.id === id);
   if (!p) return;
+  busy++;
   try {
     if (act === 'copy') {
       const coord = formatLatLng(p.lat, p.lng);
@@ -329,6 +435,8 @@ async function rowAction(act, id) {
     }
   } catch (e) {
     handleError(e);
+  } finally {
+    busy--;
   }
 }
 

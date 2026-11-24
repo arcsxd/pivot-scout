@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir sem internet.
 // Ao publicar mudanças, aumente VERSION para os celulares pegarem a versão nova.
-const VERSION = 'ps-v3';
+const VERSION = 'ps-v4';
 const SHELL = [
   './',
   'index.html',

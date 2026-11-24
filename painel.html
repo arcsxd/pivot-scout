@@ -43,6 +43,14 @@
         </select>
         <input id="search" type="search" data-i18n-ph="panel.search">
         <span id="count" class="muted"></span>
+        <span id="live" class="live idle" role="status"><span class="live-dot" aria-hidden="true"></span><span id="live-text"></span></span>
+        <select id="auto" class="small-select" aria-label="Atualização automática" data-i18n-title="live.every">
+          <option value="10">10 s</option>
+          <option value="15">15 s</option>
+          <option value="30">30 s</option>
+          <option value="60">1 min</option>
+          <option value="0" data-i18n="live.off">Desligado</option>
+        </select>
         <span class="spacer"></span>
         <button id="farms-btn" class="btn small" type="button"><span data-i18n="farm.title">Fazendas</span><span id="farms-count" class="badge info">0</span></button>
         <button id="export-kml" class="btn small" type="button" data-i18n="panel.exportKml">Exportar KML</button>

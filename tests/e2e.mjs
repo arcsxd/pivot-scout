@@ -43,7 +43,8 @@ const repos = {
 };
 let shaN = 0;
 const newSha = () => `sha${++shaN}`;
-const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
+const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': 'ETag' };
+let notModified = 0;
 const textOf = (repo, path) => repos[repo].files.get(path)?.bytes.toString('utf8');
 
 async function github(route) {
@@ -70,7 +71,15 @@ async function github(route) {
         return json(200, { type: 'file', name: path.split('/').pop(), path, sha: f.sha, content: f.bytes.toString('base64') });
       }
       const kids = [...repo.files.entries()].filter(([k]) => k.startsWith(path + '/') && !k.slice(path.length + 1).includes('/'));
-      if (kids.length) return json(200, kids.map(([k, v]) => ({ type: 'file', name: k.split('/').pop(), path: k, sha: v.sha })));
+      if (kids.length) {
+        const list = kids.map(([k, v]) => ({ type: 'file', name: k.split('/').pop(), path: k, sha: v.sha }));
+        const etag = '"' + list.map((x) => x.sha).join('.') + '"';
+        if (req.headers()['if-none-match'] === etag) {
+          notModified++;
+          return route.fulfill({ status: 304, headers: { ...CORS, etag } });
+        }
+        return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json', etag }, body: JSON.stringify(list) });
+      }
       return json(404, { message: 'Not Found' });
     }
     if (method === 'PUT') {
@@ -270,6 +279,24 @@ try {
   await panel.locator('#rows tr', { hasText: 'Pivot 12' }).locator('td.copyable').click();
   assert.equal(await panel.evaluate(() => navigator.clipboard.readText()), '-15.780123, -47.929234');
   log('painel: clicar na coordenada copia');
+
+  // Atualização automática: ponto novo capturado no celular aparece sozinho
+  await panel.selectOption('#auto', '10');
+  await panel.waitForFunction(() => document.querySelector('#live').classList.contains('ok'));
+  await phone.setGeolocation({ latitude: -15.7790, longitude: -47.9300, accuracy: 3 });
+  await cap.waitForFunction(() => document.querySelector('#acc').className.includes('good'));
+  await cap.click('#capture');
+  await cap.fill('#name', 'Pivot 14');
+  await cap.click('#save-form button[type=submit]');
+  await cap.waitForFunction(() => document.querySelector('#pending-count').textContent === '0', null, { timeout: 20000 });
+  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 3, null, { timeout: 25000 });
+  assert.match(await panel.locator('#rows tr', { hasText: 'Pivot 14' }).getAttribute('class'), /is-new/);
+  await panel.waitForFunction(() => document.querySelector('#toast').textContent.includes('Pivot 14'));
+  assert.equal(await panel.locator('#rows tr', { hasText: 'Pivot 14' }).locator('td').nth(3).textContent(), 'Fazenda Santa Rita · Talhão 1');
+  await panel.screenshot({ path: join(SHOTS, '7c-painel-ao-vivo.png') });
+  await panel.waitForTimeout(11000);
+  assert.ok(notModified > 0, 'consultas sem mudança devem voltar 304');
+  log(`painel atualiza sozinho e destaca ponto novo (${notModified} consulta(s) 304)`);
   await panel.screenshot({ path: join(SHOTS, '7-painel.png') });
 
   const row12 = panel.locator('#rows tr', { hasText: 'Pivot 12' });
@@ -289,13 +316,13 @@ try {
   assert.equal(edited.lat, -15.7801);
   log('edição gravada');
 
-  await panel.locator('#rows tr', { hasText: 'Santa Rita' }).locator('button[data-act=photo]').click();
+  await panel.locator('#rows tr', { hasText: 'Pivot 12 (Santa Rita)' }).locator('button[data-act=photo]').click();
   await panel.waitForFunction(() => document.querySelector('#photo-img').naturalWidth > 0);
   await panel.click('#photo-close');
   log('foto abre no painel');
 
   await panel.selectOption('#filter', 'pendente');
-  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 1);
+  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 2);
   await panel.selectOption('#filter', 'all');
 
   const [dl] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-kml')]);
@@ -304,7 +331,7 @@ try {
   assert.ok(kml.includes('<coordinates>-47.9292345,-15.7801000,0</coordinates>'));
   assert.ok(kml.includes('Fazenda: Fazenda Santa Rita · Talhão 1'));
   const [dl2] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-geo')]);
-  assert.equal(JSON.parse(await readFile(await dl2.path(), 'utf8')).features.length, 2);
+  assert.equal(JSON.parse(await readFile(await dl2.path(), 'utf8')).features.length, 3);
   log('exportação KML e GeoJSON');
 
   await panel.locator('#rows tr', { hasText: 'Pivot 12' }).locator('td').nth(1).click();
@@ -315,8 +342,8 @@ try {
   await panel.screenshot({ path: join(SHOTS, '8-painel-popup.png') });
 
   panel.once('dialog', (d) => d.accept());
-  await panel.locator('#rows tr', { hasText: 'Santa Rita' }).locator('button[data-act=delete]').click();
-  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 1);
+  await panel.locator('#rows tr', { hasText: 'Pivot 12 (Santa Rita)' }).locator('button[data-act=delete]').click();
+  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 2);
   assert.ok(!repos['arcsxd/pivot-scout-data'].files.has(path12));
   assert.equal([...repos['arcsxd/pivot-scout-data'].files.keys()].filter((k) => k.startsWith('photos/')).length, 0);
   log('apagar remove ponto e foto');

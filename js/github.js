@@ -35,9 +35,10 @@ export class GitHub {
     this.token = token;
     this.owner = owner;
     this.repo = repo;
+    this.etags = new Map(); // path -> { etag, data } para consultas condicionais
   }
 
-  async req(method, path, { body, accept, raw } = {}) {
+  async req(method, path, { body, accept, raw, headers: extra } = {}) {
     const base = `${API}/repos/${this.owner}/${this.repo}`;
     const headers = {
       Authorization: `Bearer ${this.token}`,
@@ -45,13 +46,14 @@ export class GitHub {
       'X-GitHub-Api-Version': '2022-11-28',
     };
     if (body) headers['Content-Type'] = 'application/json';
+    Object.assign(headers, extra);
     const res = await fetch(path ? `${base}/${path}` : base, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
       cache: 'no-store',
     });
-    if (!res.ok) {
+    if (!res.ok && !(raw && res.status === 304)) {
       let msg = res.statusText;
       try {
         msg = (await res.json()).message || msg;
@@ -92,13 +94,28 @@ export class GitHub {
     return f ? { sha: f.sha, data: JSON.parse(f.text) } : null;
   }
 
-  /** Lista uma pasta. Pasta inexistente vira lista vazia. */
+  /**
+   * Lista uma pasta. Pasta inexistente vira lista vazia.
+   * Usa ETag: se nada mudou o GitHub responde 304, que não conta no limite de consultas.
+   */
   async listDir(path) {
+    const cached = this.etags.get(path);
     try {
-      const j = await this.req('GET', this.contentsPath(path));
-      return Array.isArray(j) ? j : [];
+      const res = await this.req('GET', this.contentsPath(path), {
+        raw: true,
+        headers: cached ? { 'If-None-Match': cached.etag } : {},
+      });
+      if (res.status === 304 && cached) return cached.data;
+      const j = await res.json();
+      const data = Array.isArray(j) ? j : [];
+      const etag = res.headers.get('ETag');
+      if (etag) this.etags.set(path, { etag, data });
+      return data;
     } catch (e) {
-      if (e.status === 404) return [];
+      if (e.status === 404) {
+        this.etags.delete(path);
+        return [];
+      }
       throw e;
     }
   }
