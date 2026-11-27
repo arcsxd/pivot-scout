@@ -44,9 +44,9 @@ function render() {
     return;
   }
   ul.innerHTML = teams
-    .map((tm) => {
+    .map((tm, i) => {
       const code = payload.codes[tm.id];
-      return `<li data-id="${escapeHtml(tm.id)}">
+      return `<li data-id="${escapeHtml(tm.id)}" style="--i:${Math.min(i, 8)}">
         <div class="title"><span>${escapeHtml(tm.label)}</span><span class="badge info">${escapeHtml(tm.id)}</span></div>
         <div class="meta">Criado ${escapeHtml(formatDate(tm.created_at))}</div>
         <div class="meta">Código: <span class="mono" data-code>${code ? '•••-•••••-•••••' : '(desconhecido)'}</span></div>
@@ -139,10 +139,10 @@ function renderPresence() {
     return;
   }
   ul.innerHTML = list
-    .map((r) => {
+    .map((r, i) => {
       const [cls, label] = STATUS[r._st];
       const who = r.operator ? `${escapeHtml(r.operator)} <span class="muted">· ${escapeHtml(r.team_label)}</span>` : escapeHtml(r.team_label);
-      const icon = r.app === 'painel' ? '💻' : '📱';
+      const icon = `<svg class="i" aria-hidden="true"><use href="icons/sprite.svg#${r.app === 'painel' ? 'monitor' : 'phone'}"/></svg>`;
       const kind = r.app === 'painel' ? 'Painel do PC' : 'App de captura';
       const extra = [];
       if (r.app !== 'painel') {
@@ -150,7 +150,7 @@ function renderPresence() {
         if (r.gps?.accuracy != null) extra.push(`<span class="badge ${accuracyLevel(r.gps.accuracy)}">GPS ${formatAccuracy(r.gps.accuracy)}</span>`);
         if (r.last_capture_at) extra.push(`<span>última captura ${escapeHtml(ago(r.last_capture_at))}</span>`);
       }
-      return `<li class="presence-${r._st}">
+      return `<li class="presence-${r._st}" style="--i:${Math.min(i, 8)}">
         <div class="title"><span><span class="presence-dot ${cls}" aria-hidden="true"></span>${icon} ${who}</span><span class="badge ${cls}">${label}</span></div>
         <div class="meta"><span>${kind}${r.platform ? ' · ' + escapeHtml(r.platform) : ''}</span><span>visto ${escapeHtml(ago(r.last_seen))}</span>${extra.join('')}</div>
       </li>`;

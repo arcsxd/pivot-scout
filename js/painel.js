@@ -1,4 +1,4 @@
-// Painel do PC: mapa + tabela dos pontos, status PlaneView, edição e exportação.
+// Painel do PC: mapa + tabela dos pontos, edição, exportação e limpeza de 24 h.
 import { applyI18n, bindLangToggle, t } from './i18n.js';
 import { $, copyText, download, escapeHtml, formatDate, registerSW, stamp, toast } from './ui.js';
 import { chime, disableNotify, enableNotify, notifyEnabled, notifyPermission, setSound, showNotification, soundEnabled } from './notify.js';
@@ -7,6 +7,9 @@ import { formatLatLng, toGeoJSON, toKML } from './export.js';
 import { loginWithCode, loginAdmin, dataRepo } from './auth.js';
 import { readFarmFile, farmLabel } from './kml.js';
 import { heartbeat, newDeviceId, platform } from './presence.js';
+import { isExpired, lifeLeft, formatRemaining } from './expiry.js';
+
+const icon = (name) => `<svg class="i" aria-hidden="true"><use href="icons/sprite.svg#${name}"/></svg>`;
 
 const SESSION_KEY = 'ps-panel-session';
 let session = null;
@@ -237,7 +240,9 @@ async function load({ silent = false } = {}) {
       }
       return { ...data, _sha: e.sha };
     });
-    points = loaded.filter(Boolean).sort((a, b) => (b.captured_at || '').localeCompare(a.captured_at || ''));
+    const all = loaded.filter(Boolean);
+    expiredQueue = all.filter((p) => isExpired(p));
+    points = all.filter((p) => !isExpired(p)).sort((a, b) => (b.captured_at || '').localeCompare(a.captured_at || ''));
     selected = new Set([...selected].filter((id) => points.some((p) => p.id === id)));
     let arrived = [];
     if (!firstLoad) {
@@ -250,6 +255,7 @@ async function load({ silent = false } = {}) {
     }
     render();
     if (arrived.length) announce(arrived);
+    cleanupExpired();
   } catch (e) {
     if (e?.status === 401 || e?.status === 403 || !silent) {
       if (!silent) $('#rows').innerHTML = '';
@@ -261,6 +267,55 @@ async function load({ silent = false } = {}) {
     renderLive();
   }
 }
+
+// ---------- Limpeza de 24 h ----------
+// A tarefa agendada do GitHub (repo de dados) apaga os pontos vencidos a cada hora.
+// O painel esconde na hora certa e também apaga, caso a tarefa atrase.
+let expiredQueue = [];
+let cleaning = false;
+
+async function removePoint(p, message) {
+  try {
+    await gh.deleteFile(`points/${p.id}.json`, p._sha, message);
+  } catch (e) {
+    if (e.status !== 404 && e.status !== 409) throw e;
+  }
+  if (p.photo) {
+    try {
+      const meta = await gh.req('GET', gh.contentsPath(p.photo));
+      await gh.deleteFile(p.photo, meta.sha, `${message} (foto)`);
+    } catch (e) {
+      if (e.status !== 404 && e.status !== 409) console.warn(e);
+    }
+  }
+}
+
+async function cleanupExpired() {
+  if (cleaning || !expiredQueue.length || !gh) return;
+  cleaning = true;
+  busy++;
+  try {
+    for (const p of expiredQueue.splice(0)) await removePoint(p, `Apaga ${p.name} (24 h)`);
+  } catch (e) {
+    console.warn('limpeza de 24 h', e);
+  } finally {
+    busy--;
+    cleaning = false;
+  }
+}
+
+// A cada minuto: atualiza a contagem regressiva e tira da tela o que venceu.
+setInterval(() => {
+  if (!points.length) return;
+  const expired = points.filter((p) => isExpired(p));
+  if (expired.length) {
+    points = points.filter((p) => !isExpired(p));
+    expiredQueue.push(...expired);
+    cleanupExpired();
+  }
+  const dialogOpen = [...document.querySelectorAll('dialog')].some((d) => d.open);
+  if (!dialogOpen) render();
+}, 60000);
 
 // ---------- Notificação e som ----------
 function announce(arrived) {
@@ -285,11 +340,11 @@ function renderNotifyButtons() {
   const perm = notifyPermission();
   const on = notifyEnabled();
   nb.hidden = perm === 'unsupported';
-  nb.textContent = on ? `🔔 ${t('notify.on')}` : `🔕 ${t('notify.off')}`;
+  nb.innerHTML = on ? `${icon('bell')}<span>${escapeHtml(t('notify.on'))}</span>` : `${icon('bell-off')}<span>${escapeHtml(t('notify.off'))}</span>`;
   nb.className = `${on ? 'btn' : 'btn-primary'} small`;
   nb.title = perm === 'denied' ? t('notify.blocked') : t(on ? 'notify.turnOff' : 'notify.turnOn');
   const sb = $('#sound-btn');
-  sb.textContent = soundEnabled() ? '🔊' : '🔇';
+  sb.innerHTML = icon(soundEnabled() ? 'volume' : 'volume-x');
   sb.title = t(soundEnabled() ? 'notify.soundOff' : 'notify.soundOn');
   sb.setAttribute('aria-pressed', soundEnabled());
 }
@@ -351,14 +406,13 @@ function initMap() {
 }
 
 function popupHtml(p) {
-  return `<strong>${escapeHtml(p.name)}</strong><br>
+  const who = [p.team_label, p.operator].filter(Boolean).join(' · ');
+  return `<strong style="font-size:15px">${escapeHtml(p.name)}</strong><br>
     <span class="mono copyable" data-act="copy" data-id="${escapeHtml(p.id)}" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</span><br>
     ${farmOf(p) ? `${escapeHtml(farmOf(p))}<br>` : ''}
-    ${formatAccuracy(p.accuracy_m)} · ${escapeHtml(formatDate(p.captured_at))}<br>
-    ${escapeHtml(p.team_label || '')} · ${escapeHtml(t('status.' + (p.status || 'pendente')))}
-    <div class="row">
-      ${p.photo ? `<button class="btn small" data-act="photo" data-id="${escapeHtml(p.id)}" type="button">${escapeHtml(t('panel.photo'))}</button>` : ''}
-    </div>`;
+    <span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span> ${escapeHtml(formatDate(p.captured_at))}<br>
+    <span class="muted">${escapeHtml(who)} · ${escapeHtml(t('exp.in', { t: formatRemaining(p) }))}</span>
+    ${p.photo ? `<div class="row"><button class="btn small" data-act="photo" data-id="${escapeHtml(p.id)}" type="button">${icon('image')}${escapeHtml(t('panel.photo'))}</button></div>` : ''}`;
 }
 
 function renderMap(list) {
@@ -366,14 +420,14 @@ function renderMap(list) {
   layer.clearLayers();
   markers.clear();
   for (const p of list) {
-    const done = p.status === 'lancado';
+    const isNew = newIds.has(p.id);
     const m = L.circleMarker([p.lat, p.lng], {
       radius: 9,
       weight: 3,
       color: '#ffffff',
-      fillColor: done ? '#16a34a' : '#f59e0b',
+      fillColor: isNew ? '#2563eb' : '#f0a020',
       fillOpacity: 1,
-      className: newIds.has(p.id) ? 'marker-new' : '',
+      className: isNew ? 'marker-new marker-in' : '',
     })
       .bindTooltip(p.name, { direction: 'top', offset: [0, -8] })
       .bindPopup(() => popupHtml(p))
@@ -397,11 +451,8 @@ document.addEventListener('click', (e) => {
 
 // ---------- Tabela ----------
 function filtered() {
-  const f = $('#filter').value;
   const q = $('#search').value.trim().toLowerCase();
-  return points.filter(
-    (p) => (f === 'all' || (p.status || 'pendente') === f) && (!q || (p.name || '').toLowerCase().includes(q)),
-  );
+  return points.filter((p) => !q || `${p.name} ${p.team_label} ${p.operator} ${farmOf(p)}`.toLowerCase().includes(q));
 }
 
 function render() {
@@ -414,22 +465,24 @@ function render() {
     $('#rows').innerHTML = `<tr><td class="empty" colspan="8">${escapeHtml(t('panel.empty'))}</td></tr>`;
     return;
   }
+  const now = Date.now();
   $('#rows').innerHTML = list
     .map((p) => {
-      const done = p.status === 'lancado';
-      return `<tr data-id="${escapeHtml(p.id)}" class="${p.id === activeId ? 'active' : ''} ${newIds.has(p.id) ? 'is-new' : ''}">
+      const life = lifeLeft(p, now);
+      const isNew = newIds.has(p.id);
+      return `<tr data-id="${escapeHtml(p.id)}" class="${p.id === activeId ? 'active' : ''} ${isNew ? 'is-new' : ''}">
         <td><input type="checkbox" data-act="select" ${selected.has(p.id) ? 'checked' : ''} aria-label="Selecionar"></td>
-        <td><strong>${escapeHtml(p.name)}</strong>${p.photo ? ' 📷' : ''}${newIds.has(p.id) ? ` <span class="badge info">${escapeHtml(t('live.newTag'))}</span>` : ''}</td>
-        <td class="mono copyable" data-act="copy" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</td>
+        <td><div class="name-cell">${escapeHtml(p.name)}${p.photo ? `<span class="muted">${icon('camera')}</span>` : ''}${isNew ? `<span class="badge info">${escapeHtml(t('live.newTag'))}</span>` : ''}</div>
+          <div class="sub">${escapeHtml([p.team_label, p.operator].filter(Boolean).join(' · '))}</div></td>
+        <td class="mono"><span class="copyable" data-act="copy" title="${escapeHtml(t('act.clickCopy'))}">${formatLatLng(p.lat, p.lng)}</span></td>
         <td>${escapeHtml(farmOf(p))}</td>
         <td><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span></td>
-        <td>${escapeHtml(formatDate(p.captured_at))}<div class="muted small-text">${escapeHtml([p.team_label, p.operator].filter(Boolean).join(' · '))}</div></td>
-        <td><span class="badge ${done ? 'good' : 'ok'}">${escapeHtml(t('status.' + (done ? 'lancado' : 'pendente')))}</span></td>
+        <td>${escapeHtml(formatDate(p.captured_at))}</td>
+        <td><span class="expiry ${life < 0.125 ? 'soon' : ''}" title="${escapeHtml(t('exp.title'))}">${escapeHtml(formatRemaining(p, now))}<span class="bar"><span style="width:${(life * 100).toFixed(1)}%"></span></span></span></td>
         <td><div class="actions">
-          <button class="btn small" data-act="toggle" type="button" title="${escapeHtml(t(done ? 'panel.markPending' : 'panel.markDone'))}">${escapeHtml(t(done ? 'panel.undoShort' : 'panel.doneShort'))}</button>
-          ${p.photo ? `<button class="btn small" data-act="photo" type="button">${escapeHtml(t('panel.photo'))}</button>` : ''}
-          <button class="btn small" data-act="edit" type="button">${escapeHtml(t('panel.edit'))}</button>
-          <button class="btn-danger small" data-act="delete" type="button">${escapeHtml(t('panel.delete'))}</button>
+          ${p.photo ? `<button class="icon-btn small" data-act="photo" type="button" title="${escapeHtml(t('panel.photo'))}">${icon('image')}</button>` : ''}
+          <button class="icon-btn small" data-act="edit" type="button" title="${escapeHtml(t('panel.edit'))}">${icon('edit')}</button>
+          <button class="icon-btn small danger" data-act="delete" type="button" title="${escapeHtml(t('panel.delete'))}">${icon('trash')}</button>
         </div></td>
       </tr>`;
     })
@@ -467,7 +520,6 @@ $('#select-all').addEventListener('change', (e) => {
   for (const p of filtered()) e.target.checked ? selected.add(p.id) : selected.delete(p.id);
   render();
 });
-$('#filter').addEventListener('change', render);
 $('#search').addEventListener('input', render);
 $('#refresh').addEventListener('click', () => load({ silent: true }));
 try {
@@ -489,26 +541,20 @@ async function rowAction(act, id) {
   try {
     if (act === 'copy') {
       const coord = formatLatLng(p.lat, p.lng);
-      if (await copyText(coord)) toast(`${t('act.copied')} ${coord}`);
-    } else if (act === 'toggle') {
-      p.status = p.status === 'lancado' ? 'pendente' : 'lancado';
-      await savePoint(p);
-      toast(t('panel.saved'));
+      if (await copyText(coord)) {
+        const el = document.querySelector(`#rows tr[data-id="${CSS.escape(id)}"] .copyable, .leaflet-popup .copyable`);
+        el?.classList.remove('copied');
+        void el?.offsetWidth;
+        el?.classList.add('copied');
+        toast(`${t('act.copied')} ${coord}`);
+      }
     } else if (act === 'edit') {
       openEdit(p);
     } else if (act === 'photo') {
       await showPhoto(p);
     } else if (act === 'delete') {
       if (!confirm(t('panel.deleteConfirm', { name: p.name }))) return;
-      await gh.deleteFile(`points/${p.id}.json`, p._sha, `Apaga ${p.name}`);
-      if (p.photo) {
-        try {
-          const meta = await gh.req('GET', gh.contentsPath(p.photo));
-          await gh.deleteFile(p.photo, meta.sha, `Apaga foto ${p.name}`);
-        } catch (e) {
-          if (e.status !== 404) console.warn(e);
-        }
-      }
+      await removePoint(p, `Apaga ${p.name}`);
       points = points.filter((x) => x.id !== id);
       selected.delete(id);
       render();
@@ -625,6 +671,7 @@ $('#farms-btn').addEventListener('click', () => {
   $('#farm-dialog').showModal();
 });
 $('#farm-close').addEventListener('click', () => $('#farm-dialog').close());
+$('#farm-x').addEventListener('click', () => $('#farm-dialog').close());
 $('#farm-import').addEventListener('click', () => $('#farm-file').click());
 
 $('#farm-file').addEventListener('change', async (e) => {
@@ -640,7 +687,7 @@ $('#farm-file').addEventListener('change', async (e) => {
     const name = prompt(t('farm.namePrompt'), suggested)?.trim();
     if (!name) return;
     btn.disabled = true;
-    btn.textContent = t('farm.saving');
+    btn.lastElementChild.textContent = t('farm.saving');
     const id = `${stamp()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
     const rec = { id, name, file: file.name, imported_at: new Date().toISOString(), team_label: session.team_label, geojson };
     const sha = await gh.putJSON(`farms/${id}.json`, rec, `Importa fazenda ${name}`);
@@ -654,7 +701,7 @@ $('#farm-file').addEventListener('change', async (e) => {
     else err.textContent = e2.message || String(e2);
   } finally {
     btn.disabled = false;
-    btn.textContent = t('farm.import');
+    btn.lastElementChild.textContent = t('farm.import');
   }
 });
 

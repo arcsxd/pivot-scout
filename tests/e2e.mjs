@@ -239,7 +239,7 @@ try {
 
   await phone.setOffline(true);
   await cap.click('#capture');
-  await cap.waitForSelector('#save-form:not([hidden])');
+  await cap.waitForSelector('#sheet[open]');
   await cap.click('#save-form button[type=submit]');
   assert.ok((await cap.textContent('#name-err')).length > 0, 'nome é obrigatório');
   await cap.fill('#name', 'Pivot 12 – Fazenda Santa Rita');
@@ -247,6 +247,7 @@ try {
   await cap.waitForSelector('#photo-preview:not([hidden])');
   await cap.screenshot({ path: join(SHOTS, '4-celular-salvar.png') });
   await cap.click('#save-form button[type=submit]');
+  await cap.waitForFunction(() => !document.querySelector('#sheet').open);
   await cap.waitForFunction(() => document.querySelector('#pending-count').textContent === '1');
   await cap.waitForFunction(() => document.querySelector('#sync-msg').textContent.length > 0);
   assert.equal([...repos['arcsxd/pivot-scout-data'].files.keys()].filter((k) => k.endsWith('.json')).length, 0);
@@ -257,8 +258,10 @@ try {
   await phone.setGeolocation({ latitude: -15.7855, longitude: -47.9341, accuracy: 14 });
   await cap.waitForFunction(() => document.querySelector('#acc').className.includes('bad'));
   await cap.click('#capture');
+  await cap.waitForSelector('#sheet[open]');
   await cap.fill('#name', 'Pivot 13');
   await cap.click('#save-form button[type=submit]');
+  await cap.waitForFunction(() => !document.querySelector('#sheet').open);
   await cap.waitForFunction(() => document.querySelector('#pending-count').textContent === '2');
 
   await phone.setOffline(false);
@@ -271,7 +274,8 @@ try {
   assert.equal(rec.lat, -15.7801234);
   assert.equal(rec.lng, -47.9292345);
   assert.equal(rec.accuracy_m, 4);
-  assert.equal(rec.status, 'pendente');
+  assert.equal(rec.status, undefined, 'sem status lançado/pendente');
+  assert.ok(Date.now() - Date.parse(rec.uploaded_at) < 60000, 'uploaded_at marca a chegada na nuvem');
   assert.equal(rec.team_label, 'Equipe Pelican');
   assert.equal(rec.operator, 'João');
   assert.ok(rec.photo.startsWith('photos/'));
@@ -327,7 +331,7 @@ try {
   log('KMZ importado; ponto dentro da fazenda identificado');
 
   // Clicar na coordenada copia
-  await panel.locator('#rows tr', { hasText: 'Pivot 12' }).locator('td.copyable').click();
+  await panel.locator('#rows tr', { hasText: 'Pivot 12' }).locator('.copyable').click();
   assert.equal(await panel.evaluate(() => navigator.clipboard.readText()), '-15.780123, -47.929234');
   log('painel: clicar na coordenada copia');
 
@@ -335,7 +339,7 @@ try {
   assert.match(await panel.textContent('#notify-btn'), /Ativar notificações/);
   await panel.click('#notify-btn');
   await panel.waitForFunction(() => window.__notes.length === 1);
-  assert.match(await panel.textContent('#notify-btn'), /🔔/);
+  assert.equal((await panel.textContent('#notify-btn')).trim(), 'Notificações');
   log('notificações ativadas (com aviso de teste)');
 
   // Atualização automática: ponto novo capturado no celular aparece sozinho
@@ -345,8 +349,10 @@ try {
   await phone.setGeolocation({ latitude: -15.7790, longitude: -47.9300, accuracy: 3 });
   await cap.waitForFunction(() => document.querySelector('#acc').className.includes('good'));
   await cap.click('#capture');
+  await cap.waitForSelector('#sheet[open]');
   await cap.fill('#name', 'Pivot 14');
   await cap.click('#save-form button[type=submit]');
+  await cap.waitForFunction(() => !document.querySelector('#sheet').open);
   await cap.waitForFunction(() => document.querySelector('#pending-count').textContent === '0', null, { timeout: 20000 });
   await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 3, null, { timeout: 25000 });
   assert.match(await panel.locator('#rows tr', { hasText: 'Pivot 14' }).getAttribute('class'), /is-new/);
@@ -367,11 +373,10 @@ try {
   await panel.screenshot({ path: join(SHOTS, '7-painel.png') });
 
   const row12 = panel.locator('#rows tr', { hasText: 'Pivot 12' });
-  await row12.locator('button[data-act=toggle]').click();
-  await panel.waitForFunction(() => [...document.querySelectorAll('#rows tr')].some((tr) => tr.textContent.includes('Pivot 12') && tr.textContent.includes('Lançado')));
   const path12 = `points/${rec.id}.json`;
-  assert.equal(JSON.parse(textOf('arcsxd/pivot-scout-data', path12)).status, 'lancado');
-  log('marcar como lançado gravou status');
+  assert.equal(await row12.locator('button[data-act=toggle]').count(), 0, 'sem botão lançado');
+  assert.match(await row12.locator('.expiry').textContent(), /^2[34] h/);
+  log('sem status lançado/pendente; coluna "Apaga em" mostra ' + (await row12.locator('.expiry').textContent()).trim());
 
   await row12.locator('button[data-act=edit]').click();
   await panel.fill('#edit-name', 'Pivot 12 (Santa Rita)');
@@ -388,9 +393,10 @@ try {
   await panel.click('#photo-close');
   log('foto abre no painel');
 
-  await panel.selectOption('#filter', 'pendente');
-  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 2);
-  await panel.selectOption('#filter', 'all');
+  await panel.fill('#search', 'pivot 13');
+  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 1);
+  await panel.fill('#search', '');
+  await panel.waitForFunction(() => document.querySelectorAll('#rows tr[data-id]').length === 3);
 
   const [dl] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-kml')]);
   const kml = await readFile(await dl.path(), 'utf8');
@@ -414,6 +420,19 @@ try {
   assert.ok(!repos['arcsxd/pivot-scout-data'].files.has(path12));
   assert.equal([...repos['arcsxd/pivot-scout-data'].files.keys()].filter((k) => k.startsWith('photos/')).length, 0);
   log('apagar remove ponto e foto');
+
+  // 24 h: um ponto que chegou há 25 h some do painel e é apagado do repo.
+  const data = repos['arcsxd/pivot-scout-data'];
+  const path13 = [...data.files.keys()].find((k) => k.startsWith('points/') && k.endsWith('.json') && JSON.parse(textOf('arcsxd/pivot-scout-data', k)).name === 'Pivot 13');
+  const rec13 = JSON.parse(textOf('arcsxd/pivot-scout-data', path13));
+  rec13.uploaded_at = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
+  data.files.set(path13, { bytes: Buffer.from(JSON.stringify(rec13)), sha: newSha() });
+  await panel.click('#refresh');
+  await panel.waitForFunction(() => !document.querySelector('#rows').textContent.includes('Pivot 13'), null, { timeout: 15000 });
+  await panel.waitForFunction(() => true);
+  for (let i = 0; i < 50 && data.files.has(path13); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.ok(!data.files.has(path13), 'ponto vencido apagado do repo');
+  log('ponto com mais de 24 h some do painel e é apagado');
 
   await panel.click('#farms-btn');
   panel.once('dialog', (d) => d.accept());

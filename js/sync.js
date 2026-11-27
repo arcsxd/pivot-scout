@@ -16,7 +16,7 @@ export function toRecord(p) {
     team_label: p.team_label,
     operator: p.operator || '',
     photo: p.photoBlob ? `photos/${p.id}.jpg` : null,
-    status: 'pendente',
+    uploaded_at: p.uploaded_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 }
@@ -40,6 +40,7 @@ export async function syncPending(gh, onProgress) {
           p.photo_uploaded = true;
           await putPoint(p);
         }
+        p.uploaded_at ||= new Date().toISOString();
         const rec = toRecord(p);
         await gh.upsert(`points/${p.id}.json`, utf8ToB64(JSON.stringify(rec, null, 2) + '\n'), `Ponto ${p.name}`);
         p.synced = true;

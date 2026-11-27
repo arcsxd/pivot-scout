@@ -46,15 +46,15 @@ test('base64 UTF-8 ida e volta', () => {
 });
 
 const pts = [
-  { id: 'a', name: 'Pivot <1> & "Sul"', lat: -15.1234567, lng: -47.7654321, accuracy_m: 4.2, captured_at: '2026-11-24T12:00:00.000Z', team_label: 'Norte', status: 'pendente' },
-  { id: 'b', name: 'Pivot 2', lat: -15.2, lng: -47.8, accuracy_m: 12, status: 'lancado' },
+  { id: 'a', name: 'Pivot <1> & "Sul"', lat: -15.1234567, lng: -47.7654321, accuracy_m: 4.2, captured_at: '2026-11-24T12:00:00.000Z', team_label: 'Norte' },
+  { id: 'b', name: 'Pivot 2', lat: -15.2, lng: -47.8, accuracy_m: 12 },
 ];
 
 test('GeoJSON usa [lng, lat]', () => {
   const g = toGeoJSON(pts);
   assert.equal(g.type, 'FeatureCollection');
   assert.deepEqual(g.features[0].geometry.coordinates, [-47.7654321, -15.1234567]);
-  assert.equal(g.features[1].properties.status, 'lancado');
+  assert.equal(g.features[1].properties.name, 'Pivot 2');
 });
 
 test('KML é XML válido e escapa nomes', () => {
@@ -88,4 +88,18 @@ test('ponto dentro da área, fora dela e dentro de um buraco', () => {
   assert.equal(featureContaining(-47.934, -15.784, geojson), null);
   assert.equal(farmLabel(-15.78, -47.93, [{ name: 'Santa Rita', geojson }]), 'Santa Rita · Talhão 1');
   assert.equal(farmLabel(-15.70, -47.93, [{ name: 'Santa Rita', geojson }]), '');
+});
+
+// ---------- Validade de 24 h ----------
+import { expiresAt, isExpired, lifeLeft } from '../js/expiry.js';
+
+test('ponto expira 24 h depois de chegar na nuvem', () => {
+  const up = Date.parse('2026-11-27T10:00:00Z');
+  const p = { captured_at: '2026-11-26T08:00:00Z', uploaded_at: '2026-11-27T10:00:00Z' };
+  assert.equal(expiresAt(p), up + 24 * 3600 * 1000);
+  assert.equal(isExpired(p, up + 23 * 3600 * 1000), false);
+  assert.equal(isExpired(p, up + 24 * 3600 * 1000), true);
+  assert.equal(lifeLeft(p, up + 12 * 3600 * 1000), 0.5);
+  // Pontos antigos sem uploaded_at usam a hora da captura.
+  assert.equal(expiresAt({ captured_at: '2026-11-26T08:00:00Z' }), Date.parse('2026-11-27T08:00:00Z'));
 });

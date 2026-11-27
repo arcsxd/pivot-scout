@@ -8,17 +8,17 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="admin">
   <header class="topbar">
-    <div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Pivot Scout · Admin</span></div>
+    <div class="brand"><img src="icons/icon.svg" alt="" width="30" height="30"><span>Pivot Scout</span><span class="badge brand">Admin</span></div>
     <div class="topbar-actions">
-      <a class="btn-ghost small" href="painel.html">Painel</a>
-      <button id="logout" class="btn-ghost small" type="button" hidden>Sair</button>
+      <a class="btn-ghost small" href="painel.html"><svg class="i"><use href="icons/sprite.svg#monitor"/></svg>Painel</a>
+      <button id="logout" class="icon-btn" type="button" hidden title="Sair"><svg class="i"><use href="icons/sprite.svg#logout"/></svg></button>
     </div>
   </header>
 
   <main>
-    <section id="login" class="card" hidden>
+    <section id="login" class="card reveal" hidden>
       <h1>Admin</h1>
       <form id="login-form" autocomplete="off">
         <label for="pw">Senha de admin</label>
@@ -32,9 +32,9 @@
     <section id="app" hidden>
       <div class="notice">As mudanças são gravadas no GitHub na hora, mas o GitHub Pages leva cerca de 1 minuto para publicar. Um código novo só funciona depois disso.</div>
 
-      <div class="card">
+      <div class="card reveal">
         <div class="gps-head">
-          <h2>Quem está online</h2>
+          <h2 style="display:flex;align-items:center;gap:8px"><svg class="i"><use href="icons/sprite.svg#users"/></svg>Quem está online</h2>
           <span id="presence-summary" class="badge">—</span>
         </div>
         <p class="muted small-text" style="margin:0 0 8px">Atualiza sozinho a cada 20 s. Celulares mandam sinal a cada minuto com o app aberto; painéis do PC, a cada 2 min.</p>

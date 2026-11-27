@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir sem internet.
 // Ao publicar mudanças, aumente VERSION para os celulares pegarem a versão nova.
-const VERSION = 'ps-v6';
+const VERSION = 'ps-v7';
 const SHELL = [
   './',
   'index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   'styles.css',
   'manifest.webmanifest',
   'icons/icon.svg',
+  'icons/sprite.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'vendor/leaflet/leaflet.js',
@@ -20,6 +21,7 @@ const SHELL = [
   'js/config.js',
   'js/crypto.js',
   'js/export.js',
+  'js/expiry.js',
   'js/geo.js',
   'js/github.js',
   'js/i18n.js',

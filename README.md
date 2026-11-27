@@ -12,7 +12,7 @@ App para os operadores do **Pelican 2** registrarem a coordenada da **ponta exte
 | Página | Quem usa | Para quê |
 | --- | --- | --- |
 | `index.html` | Operador, no celular | Captura com GPS ao vivo, precisão em metros, nome obrigatório, foto opcional, funciona sem internet |
-| `painel.html` | PC | Mapa de satélite, tabela, clique na lat/long para copiar, marcar "lançado no PlaneView", editar, apagar, exportar KML/GeoJSON, importar a área da fazenda (KML/KMZ) |
+| `painel.html` | PC | Mapa de satélite, tabela, clique na lat/long para copiar, contagem de "apaga em", editar, apagar, exportar KML/GeoJSON, importar a área da fazenda (KML/KMZ) |
 | `admin.html` | Administrador | Criar e revogar códigos de equipe, trocar token, trocar senha |
 | `tools/setup.html` | Administrador, uma vez | Configuração inicial |
 
@@ -22,7 +22,7 @@ Endereço depois de publicado: `https://arcsxd.github.io/pivot-scout/`
 
 - **Este repositório (público)** guarda o código e é publicado pelo GitHub Pages.
 - **`arcsxd/pivot-scout-data` (privado)** guarda os dados:
-  - `points/<id>.json` com nome, lat, lng, precisão, data, equipe e status;
+  - `points/<id>.json` com nome, lat, lng, precisão, data, equipe, operador e `uploaded_at`;
   - `photos/<id>.jpg` com a foto.
 - O app grava nesse repo pela API do GitHub usando um **token**. O token nunca fica em texto puro no repo público:
   - `teams.json` tem o token criptografado (AES-GCM + PBKDF2) com cada **código de equipe**;
@@ -62,6 +62,17 @@ No painel do PC, use **Fazendas → Importar KML / KMZ**. Serve um arquivo expor
 ## Copiar coordenada
 
 Clique (ou toque) em qualquer `lat, long`: na tabela, no balão do mapa, na lista do celular ou na posição atual do GPS. A coordenada é copiada no formato `-15.780123, -47.929234`.
+
+## Pontos apagam sozinhos em 24 h
+
+Cada ponto (e a foto) é apagado **24 h depois de chegar na nuvem** (`uploaded_at`). Um ponto capturado sem sinal ainda fica 24 h visível depois de enviado.
+
+- **No repo de dados**, uma tarefa agendada do GitHub Actions roda a cada hora e apaga os pontos vencidos. Os arquivos ficam em `tools/data-repo/` e precisam ser copiados para o `pivot-scout-data`:
+  - `.github/workflows/apagar-24h.yml`
+  - `.github/scripts/apagar-24h.mjs`
+- **O painel** esconde o ponto na hora exata e também apaga, caso a tarefa atrase.
+- **O celular** tira da lista os pontos enviados há mais de 24 h.
+- Repositório privado: cada execução usa cerca de 1 min do GitHub Actions, ou seja, ~720 min/mês, dentro dos 2000 min grátis.
 
 ## Quem está online (admin)
 

@@ -7,6 +7,14 @@ import { kvGet, kvSet, kvDel, putPoint, getPoints, deletePoint } from './store.j
 import { loginWithCode, dataRepo } from './auth.js';
 import { syncPending } from './sync.js';
 import { heartbeat, newDeviceId, platform } from './presence.js';
+import { isExpired, lifeLeft, formatRemaining } from './expiry.js';
+
+const icon = (name) => `<svg class="i" aria-hidden="true"><use href="icons/sprite.svg#${name}"/></svg>`;
+const vibrate = (p) => {
+  try {
+    navigator.vibrate?.(p);
+  } catch { /* sem vibração */ }
+};
 
 let session = null;
 let current = null; // última leitura do GPS
@@ -26,7 +34,10 @@ addEventListener('online', () => {
   renderNet();
   trySync();
 });
-addEventListener('offline', renderNet);
+addEventListener('offline', () => {
+  renderNet();
+  if (session) renderList();
+});
 
 // ---------- Login ----------
 $('#login-form').addEventListener('submit', async (e) => {
@@ -67,6 +78,7 @@ $('#logout').addEventListener('click', async () => {
 
 function showLogin() {
   stopHeartbeat();
+  $('#dock').hidden = true;
   $('#app').hidden = true;
   $('#login').hidden = false;
   $('#code').focus();
@@ -75,6 +87,7 @@ function showLogin() {
 function showApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
+  $('#dock').hidden = false;
   $('#team-label').textContent = session.operator ? `${session.team_label} · ${session.operator}` : session.team_label;
   startGPS();
   renderList();
@@ -186,27 +199,65 @@ function renderGPS() {
     $('#lng').textContent = current.lng.toFixed(6);
   }
   renderGauge();
-  const time = current ? t('gps.updated') + new Date(current.timestamp).toLocaleTimeString() : '';
+  const time = current ? new Date(current.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
   $('#gps-status').textContent = gpsMsg || time;
   $('#capture').disabled = !current;
+  $('#capture').classList.toggle('ready', !!current && accuracyLevel(current.accuracy) === 'good');
 }
 
 // Tocar na posição atual copia "lat, long".
 $('#coords').addEventListener('click', async () => {
   if (!current) return;
   const coord = formatLatLng(current.lat, current.lng);
-  if (await copyText(coord)) toast(`${t('act.copied')} ${coord}`);
+  if (await copyText(coord)) {
+    flashCopied($('#coords'));
+    toast(`${t('act.copied')} ${coord}`);
+  }
 });
+
+function flashCopied(el) {
+  el.classList.remove('copied');
+  void el.offsetWidth;
+  el.classList.add('copied');
+  vibrate(12);
+}
 
 $('#capture').addEventListener('click', () => {
   if (!current) return;
   frozen = { ...current };
   $('#cap-coord').textContent = formatLatLng(frozen.lat, frozen.lng);
   setAccBadge($('#cap-acc'), frozen.accuracy);
-  $('#save-form').hidden = false;
   $('#name-err').textContent = '';
-  $('#save-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setTimeout(() => $('#name').focus(), 300);
+  // "Obturador": flash na tela, onda no botão e vibração curta.
+  const btn = $('#capture');
+  btn.classList.remove('fired');
+  void btn.offsetWidth;
+  btn.classList.add('fired');
+  const flash = $('#flash');
+  flash.classList.remove('go');
+  void flash.offsetWidth;
+  flash.classList.add('go');
+  vibrate(30);
+  setTimeout(() => {
+    $('#sheet').showModal();
+    $('#name').focus();
+  }, 160);
+});
+
+function closeSheet() {
+  const sheet = $('#sheet');
+  if (!sheet.open) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) return sheet.close();
+  sheet.classList.add('closing');
+  setTimeout(() => {
+    sheet.classList.remove('closing');
+    sheet.close();
+  }, 250);
+}
+$('#sheet').addEventListener('cancel', (e) => {
+  e.preventDefault();
+  resetForm();
 });
 
 // ---------- Foto ----------
@@ -241,7 +292,7 @@ function resetForm() {
   frozen = null;
   $('#name').value = '';
   clearPhoto();
-  $('#save-form').hidden = true;
+  closeSheet();
 }
 
 $('#discard').addEventListener('click', resetForm);
@@ -283,40 +334,80 @@ $('#save-form').addEventListener('submit', async (e) => {
   await putPoint(point);
   lastCaptureAt = point.captured_at;
   resetForm();
-  toast(t('save.saved'));
+  showSuccess(t('save.saved'));
+  vibrate([20, 40, 20]);
+  freshId = point.id;
   await renderList();
   trySync();
 });
 
+function showSuccess(text) {
+  const el = document.createElement('div');
+  el.className = 'success';
+  el.innerHTML = `<div><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="m7.5 12.5 3 3 6-7"/></svg><span>${escapeHtml(text)}</span></div>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add('out'), 1100);
+  setTimeout(() => el.remove(), 1400);
+}
+
 // ---------- Lista ----------
+let freshId = null;
+let syncing = false;
+
+/** Apaga do celular os pontos já enviados há mais de 24 h. */
+async function purgeExpired() {
+  const now = Date.now();
+  for (const p of await getPoints()) {
+    if (p.synced && isExpired(p, now)) await deletePoint(p.id);
+  }
+}
+
+function renderSyncChip(pending, state) {
+  const chip = $('#sync-now');
+  $('#pending-count').textContent = pending;
+  const st = state || (!navigator.onLine && pending ? 'offline' : pending ? 'pending' : 'done');
+  chip.className = `sync-chip ${st}`;
+  chip.querySelector('use').setAttribute('href', `icons/sprite.svg#${pending || st === 'sending' ? 'cloud-up' : 'check-circle'}`);
+}
+
 async function renderList() {
+  await purgeExpired();
   const points = (await getPoints()).sort((a, b) => b.captured_at.localeCompare(a.captured_at));
   const pending = points.filter((p) => !p.synced).length;
-  $('#pending-count').textContent = pending;
+  renderSyncChip(pending, syncing ? 'sending' : null);
   const ul = $('#points');
   if (!points.length) {
-    ul.innerHTML = `<li class="muted">${escapeHtml(t('list.empty'))}</li>`;
+    ul.innerHTML = `<li class="empty-state">${icon('pin')}<div>${escapeHtml(t('list.empty'))}</div></li>`;
     return;
   }
+  const now = Date.now();
   ul.innerHTML = points
-    .map((p) => {
+    .map((p, i) => {
       const coord = formatLatLng(p.lat, p.lng);
       const st = p.synced
-        ? `<span class="badge good">✓ ${escapeHtml(t('list.synced'))}</span>`
-        : `<span class="badge ok">⏳ ${escapeHtml(t('list.pendingOne'))}</span>`;
-      return `<li data-id="${escapeHtml(p.id)}">
-        <div class="title"><span>${escapeHtml(p.name)}</span>${st}</div>
-        <div><span class="mono copyable" data-act="copy" role="button" tabindex="0">${coord}</span></div>
-        <div class="meta"><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span>
-          <span>${escapeHtml(formatDate(p.captured_at))}</span>${p.photoBlob ? '<span>📷</span>' : ''}</div>
-        <div class="row">
-          ${navigator.share ? `<button class="btn small" data-act="share" type="button">${escapeHtml(t('act.share'))}</button>` : ''}
-          <button class="btn-danger small" data-act="remove" type="button">${escapeHtml(t('act.remove'))}</button>
+        ? `<span class="state sent">${icon('check')}${escapeHtml(t('list.synced'))}</span>`
+        : `<span class="state waiting">${icon('clock')}${escapeHtml(t('list.pendingOne'))}</span>`;
+      const life = p.synced
+        ? `<span class="muted" title="${escapeHtml(t('exp.title'))}">${icon('hourglass')} ${escapeHtml(t('exp.in', { t: formatRemaining(p, now) }))}</span>`
+        : '';
+      return `<li class="point-card ${p.id === freshId ? 'fresh' : ''}" style="--i:${Math.min(i, 8)}" data-id="${escapeHtml(p.id)}">
+        <div class="top"><span class="name">${escapeHtml(p.name)}</span>${st}</div>
+        <span class="coord copyable" data-act="copy" role="button" tabindex="0" title="${escapeHtml(t('act.clickCopy'))}">${coord}</span>
+        <div class="foot-row">
+          <div class="meta"><span class="badge ${accuracyLevel(p.accuracy_m)}">${formatAccuracy(p.accuracy_m)}</span>
+            <span>${escapeHtml(formatDate(p.captured_at))}</span>${p.photoBlob ? icon('camera') : ''}${life}</div>
+          <div class="actions">
+            ${navigator.share ? `<button class="icon-btn small" data-act="share" type="button" title="${escapeHtml(t('act.share'))}">${icon('share')}</button>` : ''}
+            <button class="icon-btn small danger" data-act="remove" type="button" title="${escapeHtml(t('act.remove'))}">${icon('trash')}</button>
+          </div>
         </div>
+        ${p.synced ? `<span class="life" style="width:${(lifeLeft(p, now) * 100).toFixed(1)}%"></span>` : ''}
       </li>`;
     })
     .join('');
+  freshId = null;
 }
+setInterval(() => session && renderList(), 60000);
 
 $('#points').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-act]');
@@ -326,14 +417,19 @@ $('#points').addEventListener('click', async (e) => {
   if (!p) return;
   const coord = formatLatLng(p.lat, p.lng);
   if (btn.dataset.act === 'copy') {
-    if (await copyText(coord)) toast(`${t('act.copied')} ${coord}`);
+    if (await copyText(coord)) {
+      flashCopied(btn);
+      toast(`${t('act.copied')} ${coord}`);
+    }
   } else if (btn.dataset.act === 'share') {
     const text = `${p.name}\n${coord}\n${formatAccuracy(p.accuracy_m)}\nhttps://maps.google.com/?q=${p.lat},${p.lng}`;
     navigator.share({ title: p.name, text }).catch(() => {});
   } else if (btn.dataset.act === 'remove') {
     if (!confirm(p.synced ? t('list.removeConfirm') : t('list.removePendingConfirm'))) return;
     await deletePoint(id);
-    renderList();
+    const li = btn.closest('li');
+    li.classList.add('removing');
+    setTimeout(renderList, 300);
   }
 });
 
@@ -351,7 +447,14 @@ async function trySync(manual = false) {
     return;
   }
   msg.textContent = t('sync.sending');
-  const res = await syncPending(dataRepo(session.data_token), renderList);
+  syncing = true;
+  renderSyncChip(pending, 'sending');
+  let res;
+  try {
+    res = await syncPending(dataRepo(session.data_token), renderList);
+  } finally {
+    syncing = false;
+  }
   if (res.skipped) return;
   await renderList();
   if (res.lastError) {

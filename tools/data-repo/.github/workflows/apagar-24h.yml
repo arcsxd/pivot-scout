@@ -1,0 +1,43 @@
+# Apaga automaticamente os pontos (e fotos) com mais de 24 h.
+# Este arquivo vive no repositório de dados (pivot-scout-data).
+name: Apagar pontos com mais de 24 h
+
+on:
+  schedule:
+    - cron: '17 * * * *' # a cada hora, no minuto 17
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apagar-24h
+  cancel-in-progress: false
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Apagar pontos vencidos
+        run: node .github/scripts/apagar-24h.mjs
+
+      - name: Gravar
+        run: |
+          if git diff --cached --quiet; then
+            echo "Nada para apagar."
+            exit 0
+          fi
+          git config user.name "pivot-scout-bot"
+          git config user.email "pivot-scout-bot@users.noreply.github.com"
+          git commit -q -m "Apaga pontos com mais de 24 h"
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase -q && continue
+          done
+          exit 1
